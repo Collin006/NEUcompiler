@@ -1,0 +1,28 @@
+program TestLexer;
+
+var
+    a, b : integer;
+    x    : real;
+    s    : string;
+
+begin
+    a := 10;
+    b := 20;
+
+    x := 3.14;
+    x := 1.2e-3;
+
+    s := 'Hello';
+    s := 'It''s Pascal';
+
+    { brace comment }
+
+    (* paren-star comment *)
+
+    if a <= b then
+    begin
+        x := x + a * b;
+    end;
+
+    writeln(s);
+end.
