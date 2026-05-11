@@ -1,6 +1,7 @@
 #include "parser.h"
 #include <stdexcept>
 #include <algorithm>
+#include <fstream>
 
 // ============================================================
 // 构造 & 顶层入口
@@ -43,6 +44,14 @@ bool Parser::parse() {
 
 string Parser::getLog() const {
     return log_.str();
+}
+
+bool Parser::writeLogToFile(const string& filepath) const {
+    ofstream out(filepath, ios::out | ios::trunc);
+    if (!out.is_open()) return false;
+    out << log_.str();
+    out.close();
+    return true;
 }
 
 // ============================================================

@@ -37,6 +37,9 @@ public:
     // 获取累积的日志字符串
     string getLog() const;
 
+    // 将日志写入 UTF-8 文件（便于查看）
+    bool writeLogToFile(const string& filepath) const;
+
     // 是否有语法错误
     bool hasError() const { return hasError_; }
 

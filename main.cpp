@@ -3,6 +3,12 @@
 #include <string>
 #include <vector>
 #include <exception>
+#include <cstring>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #include "global.h"
 #include "synbl.h"
 #include "parser.h"
@@ -13,6 +19,12 @@ using namespace std;
 vector<Token> lexicalAnalyze(istream& source);
 
 int main(int argc, char* argv[]) {
+
+    // 控制台强制 UTF-8 输出（解决中文乱码）
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+#endif
 
     // 如果没有提供源文件路径
     if (argc < 2) {
@@ -51,8 +63,14 @@ int main(int argc, char* argv[]) {
         Parser parser(tokens);
         bool parseOk = parser.parse();
 
-        // 输出日志
+        // 输出日志到控制台
         cout << parser.getLog();
+
+        // 自动写日志文件（与源文件同目录）
+        string logPath = sourcePath + "_parse_log.txt";
+        if (parser.writeLogToFile(logPath)) {
+            cout << "\n[LOG] 详细日志已写入: " << logPath << "\n";
+        }
 
         if (!parseOk) {
             cerr << "\n[FAIL] 语法分析发现错误: "
