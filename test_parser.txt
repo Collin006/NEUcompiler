@@ -1,0 +1,76 @@
+program TestParser;
+
+var
+    a, b, c : integer;
+    x, y    : real;
+    flag    : boolean;
+    msg     : string;
+
+{ 函数：计算两个整数的最大值 }
+function max(m : integer; n : integer) : integer;
+begin
+    if m > n then
+        max := m;
+    if m <= n then
+        max := n;
+end;
+
+{ 过程：交换两个实数 }
+procedure swap(var u : real; var v : real);
+var
+    temp : real;
+begin
+    temp := u;
+    u := v;
+    v := temp;
+end;
+
+{ 过程：打印（无参，空过程体仅用于测试语法） }
+procedure doNothing;
+begin
+end;
+
+begin
+    { 基本赋值 }
+    a := 10;
+    b := 20;
+    c := a + b;
+    x := 3.14;
+    y := 2.71;
+
+    { if 语句 }
+    if flag then
+        a := 1;
+
+    { if-else 语句 }
+    if a > b then
+        c := a;
+    if a <= b then
+        c := b;
+
+    { 悬空 else 测试：else 应匹配最近的 if }
+    if flag then
+        if a > b then
+            c := 100;
+    if flag then
+        if a > b then
+            c := 200;
+
+    { while 循环 }
+    while flag do
+    begin
+        a := a + 1;
+        flag := false;
+    end;
+
+    { 过程调用 }
+    swap(x, y);
+
+    { 无参过程调用 }
+    doNothing;
+
+    { 嵌套 begin-end }
+    begin
+        a := 0;
+    end;
+end.

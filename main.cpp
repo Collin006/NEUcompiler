@@ -5,6 +5,7 @@
 #include <exception>
 #include "global.h"
 #include "synbl.h"
+#include "parser.h"
 
 using namespace std;
 // 词法分析器接口
@@ -33,10 +34,10 @@ int main(int argc, char* argv[]) {
     }
 
     try {
-        // 调用词法分析器，得到 token 序列
+        // 1. 词法分析
+        cout << "===== 词法分析 =====\n";
         vector<Token> tokens = lexicalAnalyze(sourceFile);
 
-        // 暂时打印 token，方便测试
         for (const Token& token : tokens) {
             cout << "<"
                  << token.type << ", "
@@ -44,6 +45,23 @@ int main(int argc, char* argv[]) {
                  << token.line
                  << ">" << endl;
         }
+
+        // 2. 语法分析
+        cout << "\n===== 语法分析 =====\n";
+        Parser parser(tokens);
+        bool parseOk = parser.parse();
+
+        // 输出日志
+        cout << parser.getLog();
+
+        if (!parseOk) {
+            cerr << "\n[FAIL] 语法分析发现错误: "
+                 << parser.getErrorMessage() << '\n';
+            return 1;
+        }
+
+        cout << "\n[PASS] 词法和语法分析均通过。\n";
+
     }
     catch (const exception& e) {
         cerr << "Compiler error: " << e.what() << '\n';
