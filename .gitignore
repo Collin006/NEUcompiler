@@ -20,3 +20,5 @@ cmake_install.cmake
 *.dylib
 NEUcompiler
 
+test_parser.txt_parse_log.txt
+
