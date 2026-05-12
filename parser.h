@@ -46,6 +46,9 @@ public:
     // 获取第一条错误消息
     string getErrorMessage() const { return errorMsg_; }
 
+    // 获取表达式文法 SELECT 集与 LR(1) 分析表的文本（自动构建）
+    static bool getExpressionAnalysisDump(string& dump, string& error);
+
 private:
     // ==================== Token 导航 ====================
     const vector<Token>& tokens_;
@@ -85,7 +88,6 @@ private:
     // ==================== 错误处理 ====================
     bool   hasError_;
     string errorMsg_;
-    bool expressionAnalysisPrinted_;
 
     void error(const string& msg);  // 报告错误
     void synchronize();             // 恐慌模式恢复

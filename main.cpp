@@ -4,9 +4,14 @@
 #include <vector>
 #include <exception>
 #include <cstring>
+#include <sstream>
+#include <limits>
 
 #ifdef _WIN32
 #include <windows.h>
+#include <io.h>
+#else
+#include <unistd.h>
 #endif
 
 #include "global.h"
@@ -17,6 +22,48 @@ using namespace std;
 // 词法分析器接口
 // 读取 source，返回 token 序列
 vector<Token> lexicalAnalyze(istream& source);
+
+namespace {
+
+bool isInteractiveInput() {
+#ifdef _WIN32
+    return _isatty(_fileno(stdin)) != 0;
+#else
+    return isatty(fileno(stdin)) != 0;
+#endif
+}
+
+void waitForEnterIfNeeded() {
+    if (!isInteractiveInput()) return;
+    cout << "\n[按回车继续下一段]";
+    cout.flush();
+    cin.ignore(numeric_limits<streamsize>::max(), '\n');
+}
+
+void printLinesPaged(const vector<string>& lines, size_t pageSize = 40) {
+    if (lines.empty()) return;
+
+    for (size_t i = 0; i < lines.size(); ++i) {
+        cout << lines[i] << '\n';
+        if ((i + 1) % pageSize == 0 && i + 1 < lines.size()) {
+            waitForEnterIfNeeded();
+        }
+    }
+}
+
+vector<string> splitLines(const string& text) {
+    vector<string> lines;
+    istringstream iss(text);
+    string line;
+
+    while (getline(iss, line)) {
+        lines.push_back(line);
+    }
+
+    return lines;
+}
+
+} // namespace
 
 int main(int argc, char* argv[]) {
 
@@ -50,21 +97,31 @@ int main(int argc, char* argv[]) {
         cout << "===== 词法分析 =====\n";
         vector<Token> tokens = lexicalAnalyze(sourceFile);
 
+        vector<string> tokenLines;
+        tokenLines.reserve(tokens.size());
         for (const Token& token : tokens) {
-            cout << "<"
-                 << token.type << ", "
-                 << token.value << ", line "
-                 << token.line
-                 << ">" << endl;
+            tokenLines.push_back("<" + token.type + ", " + token.value +
+                                 ", line " + to_string(token.line) + ">");
         }
+        printLinesPaged(tokenLines, 30);
 
-        // 2. 语法分析
+        // 2. 自动构建并输出表达式 SELECT 集与 LR(1) 分析表（词法分析后）
+        cout << "\n===== 表达式分析表构建 =====\n";
+        string expressionDump;
+        string expressionError;
+        if (!Parser::getExpressionAnalysisDump(expressionDump, expressionError)) {
+            cerr << "Error: 表达式 LR(1) 自动构建失败: " << expressionError << '\n';
+            return 1;
+        }
+        printLinesPaged(splitLines(expressionDump), 30);
+
+        // 3. 语法分析
         cout << "\n===== 语法分析 =====\n";
         Parser parser(tokens);
         bool parseOk = parser.parse();
 
-        // 输出日志到控制台
-        cout << parser.getLog();
+        // 输出日志到控制台（分段）
+        printLinesPaged(splitLines(parser.getLog()), 30);
 
         // 自动写日志文件（与源文件同目录）
         string logPath = sourcePath + "_parse_log.txt";
