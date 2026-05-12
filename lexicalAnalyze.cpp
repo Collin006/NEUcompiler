@@ -168,6 +168,9 @@ static Token scanIdentifierOrKeyword(istream& source, int line)
     if (synblIndex == -1) {
         SynblItem item;
         item.name = value;
+        item.typ = -1;
+        item.cat = "";
+        item.addr = -1;
         ctx.synbl.push_back(item);
         synblIndex = static_cast<int>(ctx.synbl.size()) - 1;
     }

@@ -50,6 +50,8 @@ struct SemanticValue {
     string symbol;   // 文法符号名（终结符如 "id"/"+", 非终结符如 "Expr"）
     string text;     // 终结符的原文（标识符名/常量值），非终结符由规约生成
     int    line;     // 所在行号
+    bool isCall = false;
+    vector<string> args;
 };
 
 // 规约回调：产生式编号、LHS、RHS 值列表 → 规约结果
@@ -104,7 +106,8 @@ public:
     //           传 nullptr 则使用默认行为（仅透传符号名）
     // lrLog:    非空时输出每次 Shift/Reduce/Accept 的详细日志
     bool parse(const vector<SemanticValue>& inputValues, string& errorMsg,
-               const ReduceCallback& onReduce, ostream* lrLog = nullptr) const {
+               const ReduceCallback& onReduce, ostream* lrLog = nullptr,
+               SemanticValue* acceptValue = nullptr) const {
         vector<int> stateStack;
         vector<SemanticValue> valueStack;  // 语义值栈，与状态栈同步
         stateStack.push_back(0);
@@ -200,6 +203,9 @@ public:
                 }
                 if (lrLog) *lrLog << "  [LR] Accept  (表达式分析成功)\n";
                 // 顶层规约结果的语义值在 valueStack.top()
+                if (acceptValue && !valueStack.empty()) {
+                    *acceptValue = valueStack.back();
+                }
                 return true;
             }
 
@@ -755,6 +761,17 @@ bool Parser::parse() {
     indent_ = 0;
     hasError_ = false;
     errorMsg_.clear();
+    quadruples_.clear();
+    pendingIdentifiers_.clear();
+    pendingActualArgs_.clear();
+    scopeLevel_ = 0;
+    tempCounter_ = 0;
+    currentRoutineSymbolIndex_ = -1;
+    currentRoutineParamCount_ = 0;
+    lastParsedTypeIndex_ = -1;
+    lastParsedTypeCode_.clear();
+    lastExpressionPlace_.clear();
+    lastStatementIdentifier_.clear();
 
     if (tokens_.empty()) {
         logInfo("token 序列为空，无需分析");
@@ -800,6 +817,75 @@ bool Parser::writeLogToFile(const string& filepath) const {
     out << log_.str();
     out.close();
     return true;
+}
+
+string Parser::getQuadrupleDump() const {
+    ostringstream out;
+    out << "===== 四元式 =====\n";
+    for (size_t i = 0; i < quadruples_.size(); ++i) {
+        const Quadruple& q = quadruples_[i];
+        out << i << ": (" << q.op << ", " << q.arg1 << ", "
+            << q.arg2 << ", " << q.result << ")\n";
+    }
+    if (quadruples_.empty()) {
+        out << "(empty)\n";
+    }
+    return out.str();
+}
+
+int Parser::currentIdIndex() const {
+    if (!checkId()) return -1;
+    try {
+        return stoi(current().value);
+    } catch (...) {
+        return -1;
+    }
+}
+
+int Parser::ensureBuiltinType(const string& tval) {
+    for (int i = 0; i < static_cast<int>(ctx.typel.size()); ++i) {
+        if (ctx.typel[i].tval == tval) return i;
+    }
+    TypelItem item;
+    item.tval = tval;
+    item.tpoint = -1;
+    ctx.typel.push_back(item);
+    LenlItem len;
+    if (tval == "r") len.length = 2;
+    else len.length = 1;
+    ctx.lenl.push_back(len);
+    return static_cast<int>(ctx.typel.size()) - 1;
+}
+
+string Parser::newTemp() {
+    string name = "_t" + to_string(++tempCounter_);
+    SynblItem item;
+    item.name = name;
+    item.typ = lastParsedTypeIndex_;
+    item.cat = "v";
+    item.addr = scopeLevel_;
+    ctx.synbl.push_back(item);
+    return name;
+}
+
+int Parser::emitQuad(const string& op, const string& arg1, const string& arg2, const string& result) {
+    quadruples_.push_back({op, arg1, arg2, result});
+    return static_cast<int>(quadruples_.size()) - 1;
+}
+
+void Parser::backpatchQuadResult(int quadIndex, int target) {
+    if (quadIndex < 0 || quadIndex >= static_cast<int>(quadruples_.size())) return;
+    quadruples_[quadIndex].result = to_string(target);
+}
+
+void Parser::declarePendingIdentifiers(const string& cat, int typ) {
+    for (int idx : pendingIdentifiers_) {
+        if (idx < 0 || idx >= static_cast<int>(ctx.synbl.size())) continue;
+        ctx.synbl[idx].typ = typ;
+        ctx.synbl[idx].cat = cat;
+        ctx.synbl[idx].addr = scopeLevel_;
+    }
+    pendingIdentifiers_.clear();
 }
 
 // ============================================================
@@ -1055,11 +1141,17 @@ bool Parser::parseProgram() {
     }
 
     /* SEMANTIC: 程序名入符号表 */
+    int programIdx = currentIdIndex();
 
     if (!matchId()) {
         error("缺少程序名（标识符）");
         exitRule("程序", false);
         return false;
+    }
+    if (programIdx >= 0 && programIdx < static_cast<int>(ctx.synbl.size())) {
+        ctx.synbl[programIdx].cat = "p";
+        ctx.synbl[programIdx].addr = 0;
+        if (ctx.synbl[programIdx].typ < 0) ctx.synbl[programIdx].typ = ensureBuiltinType("i");
     }
 
     if (!matchDelimiter(";")) {
@@ -1087,6 +1179,7 @@ bool Parser::parseSubProgram() {
     enterRule("分程序");
 
     /* SEMANTIC: 进入新的作用域层级 */
+    scopeLevel_++;
 
     if (!parseDeclarationPart()) {
         exitRule("分程序", false);
@@ -1099,6 +1192,7 @@ bool Parser::parseSubProgram() {
     }
 
     /* SEMANTIC: 退出作用域层级 */
+    if (scopeLevel_ > 0) scopeLevel_--;
 
     exitRule("分程序", true);
     return true;
@@ -1213,6 +1307,8 @@ bool Parser::parseVariableDefinitionList() {
 bool Parser::parseVariableDefinition() {
     enterRule("变量定义");
 
+    pendingIdentifiers_.clear();
+
     if (!parseIdentifierList()) {
         exitRule("变量定义", false);
         return false;
@@ -1230,6 +1326,7 @@ bool Parser::parseVariableDefinition() {
     }
 
     /* SEMANTIC: 为标识符表关联类型 */
+    declarePendingIdentifiers("v", lastParsedTypeIndex_);
 
     exitRule("变量定义", true);
     return true;
@@ -1238,6 +1335,8 @@ bool Parser::parseVariableDefinition() {
 bool Parser::parseIdentifierList() {
     enterRule("标识符表");
 
+    int firstId = currentIdIndex();
+
     if (!matchId()) {
         error("缺少标识符");
         exitRule("标识符表", false);
@@ -1245,6 +1344,7 @@ bool Parser::parseIdentifierList() {
     }
 
     /* SEMANTIC: 收集标识符 */
+    if (firstId >= 0) pendingIdentifiers_.push_back(firstId);
 
     if (!parseIdentifierListTail()) {
         exitRule("标识符表", false);
@@ -1259,12 +1359,14 @@ bool Parser::parseIdentifierListTail() {
     enterRule("标识符表尾");
 
     while (matchDelimiter(",")) {
+        int idIndex = currentIdIndex();
         if (!matchId()) {
             error("',' 后缺少标识符");
             exitRule("标识符表尾", false);
             return false;
         }
         /* SEMANTIC: 收集标识符 */
+        if (idIndex >= 0) pendingIdentifiers_.push_back(idIndex);
     }
     // ε 情形
 
@@ -1293,6 +1395,8 @@ bool Parser::parseFunctionDeclaration() {
         return false;
     }
 
+    int funcIdx = currentIdIndex();
+
     if (!matchId()) {
         error("缺少函数名");
         exitRule("函数说明", false);
@@ -1300,6 +1404,12 @@ bool Parser::parseFunctionDeclaration() {
     }
 
     /* SEMANTIC: 函数名入符号表，cat = 'f' */
+    currentRoutineSymbolIndex_ = funcIdx;
+    currentRoutineParamCount_ = 0;
+    if (funcIdx >= 0 && funcIdx < static_cast<int>(ctx.synbl.size())) {
+        ctx.synbl[funcIdx].cat = "f";
+        ctx.synbl[funcIdx].addr = scopeLevel_;
+    }
 
     if (!parseFormalParameters()) {
         exitRule("函数说明", false);
@@ -1318,6 +1428,9 @@ bool Parser::parseFunctionDeclaration() {
     }
 
     /* SEMANTIC: 设置函数返回类型 */
+    if (currentRoutineSymbolIndex_ >= 0 && currentRoutineSymbolIndex_ < static_cast<int>(ctx.synbl.size())) {
+        ctx.synbl[currentRoutineSymbolIndex_].typ = lastParsedTypeIndex_;
+    }
 
     if (!matchDelimiter(";")) {
         error("函数返回类型后缺少 ';'");
@@ -1337,6 +1450,7 @@ bool Parser::parseFunctionDeclaration() {
     }
 
     /* SEMANTIC: 函数定义结束，回填地址 */
+    currentRoutineSymbolIndex_ = -1;
 
     exitRule("函数说明", true);
     return true;
@@ -1364,6 +1478,15 @@ bool Parser::parseFormalParameters() {
     // ε 情形（无括号）：直接返回
 
     /* SEMANTIC: 记录形参个数 */
+    if (currentRoutineSymbolIndex_ >= 0) {
+        PfinflItem item{};
+        item.level = scopeLevel_;
+        item.off = 0;
+        item.fn = currentRoutineParamCount_;
+        item.entry = -1;
+        item.param = -1;
+        ctx.pfinfl.push_back(item);
+    }
 
     exitRule("形式参数", true);
     return true;
@@ -1418,6 +1541,8 @@ bool Parser::parseParameterDefinition() {
 bool Parser::parseValueParameter() {
     enterRule("值参数");
 
+    pendingIdentifiers_.clear();
+
     if (!parseIdentifierList()) {
         exitRule("值参数", false);
         return false;
@@ -1435,6 +1560,9 @@ bool Parser::parseValueParameter() {
     }
 
     /* SEMANTIC: 值参数入符号表，cat = 'vf' */
+    int paramCount = static_cast<int>(pendingIdentifiers_.size());
+    declarePendingIdentifiers("vf", lastParsedTypeIndex_);
+    currentRoutineParamCount_ += paramCount;
 
     exitRule("值参数", true);
     return true;
@@ -1442,6 +1570,8 @@ bool Parser::parseValueParameter() {
 
 bool Parser::parseVarParameter() {
     enterRule("变量参数");
+
+    pendingIdentifiers_.clear();
 
     if (!matchKeyword("var")) {
         error("缺少关键字 'var'");
@@ -1466,6 +1596,9 @@ bool Parser::parseVarParameter() {
     }
 
     /* SEMANTIC: 变量参数入符号表，cat = 'vn' */
+    int paramCount = static_cast<int>(pendingIdentifiers_.size());
+    declarePendingIdentifiers("vn", lastParsedTypeIndex_);
+    currentRoutineParamCount_ += paramCount;
 
     exitRule("变量参数", true);
     return true;
@@ -1485,6 +1618,8 @@ bool Parser::parseProcedureDeclaration() {
         return false;
     }
 
+    int procIdx = currentIdIndex();
+
     if (!matchId()) {
         error("缺少过程名");
         exitRule("过程说明", false);
@@ -1492,6 +1627,12 @@ bool Parser::parseProcedureDeclaration() {
     }
 
     /* SEMANTIC: 过程名入符号表 */
+    currentRoutineSymbolIndex_ = procIdx;
+    currentRoutineParamCount_ = 0;
+    if (procIdx >= 0 && procIdx < static_cast<int>(ctx.synbl.size())) {
+        ctx.synbl[procIdx].cat = "p";
+        ctx.synbl[procIdx].addr = scopeLevel_;
+    }
 
     if (!parseFormalParameters()) {
         exitRule("过程说明", false);
@@ -1514,6 +1655,8 @@ bool Parser::parseProcedureDeclaration() {
         exitRule("过程说明", false);
         return false;
     }
+
+    currentRoutineSymbolIndex_ = -1;
 
     exitRule("过程说明", true);
     return true;
@@ -1622,6 +1765,7 @@ bool Parser::parseIfStatement() {
     }
 
     /* SEMANTIC: 生成条件跳转四元式（真出口待回填） */
+    int jfalseIndex = emitQuad("jfalse", lastExpressionPlace_, "", "?");
 
     // then 分支
     if (!parseStatement()) {
@@ -1630,10 +1774,13 @@ bool Parser::parseIfStatement() {
     }
 
     /* SEMANTIC: 回填真出口 / 生成无条件跳转（跳过 else） */
+    int jmpOverElse = -1;
 
     // 可选的 else 分支
     if (matchKeyword("else")) {
         /* SEMANTIC: 处理 else 前的跳转 */
+        jmpOverElse = emitQuad("j", "", "", "?");
+        backpatchQuadResult(jfalseIndex, static_cast<int>(quadruples_.size()));
 
         if (!parseStatement()) {
             exitRule("if语句", false);
@@ -1641,8 +1788,10 @@ bool Parser::parseIfStatement() {
         }
 
         /* SEMANTIC: 回填假出口 */
+        backpatchQuadResult(jmpOverElse, static_cast<int>(quadruples_.size()));
     } else {
         /* SEMANTIC: 回填假出口到当前位置 */
+        backpatchQuadResult(jfalseIndex, static_cast<int>(quadruples_.size()));
     }
 
     exitRule("if语句", true);
@@ -1659,6 +1808,7 @@ bool Parser::parseWhileStatement() {
     }
 
     /* SEMANTIC: 记录循环起始地址 */
+    int loopBegin = static_cast<int>(quadruples_.size());
 
     if (!parseExpression({"do"})) {
         exitRule("while语句", false);
@@ -1672,6 +1822,7 @@ bool Parser::parseWhileStatement() {
     }
 
     /* SEMANTIC: 生成条件跳转四元式 */
+    int jfalseIndex = emitQuad("jfalse", lastExpressionPlace_, "", "?");
 
     if (!parseStatement()) {
         exitRule("while语句", false);
@@ -1679,6 +1830,8 @@ bool Parser::parseWhileStatement() {
     }
 
     /* SEMANTIC: 生成无条件跳转回循环头 + 回填假出口 */
+    emitQuad("j", "", "", to_string(loopBegin));
+    backpatchQuadResult(jfalseIndex, static_cast<int>(quadruples_.size()));
 
     exitRule("while语句", true);
     return true;
@@ -1687,6 +1840,9 @@ bool Parser::parseWhileStatement() {
 bool Parser::parseAssignOrCallStatement() {
     enterRule("赋值或调用语句");
 
+    int idIndex = currentIdIndex();
+    string idName = tokenToString(current());
+
     if (!matchId()) {
         error("缺少标识符");
         exitRule("赋值或调用语句", false);
@@ -1694,6 +1850,10 @@ bool Parser::parseAssignOrCallStatement() {
     }
 
     /* SEMANTIC: 查符号表获取该标识符信息 */
+    lastStatementIdentifier_ = idName;
+    if (idIndex >= 0 && idIndex < static_cast<int>(ctx.synbl.size())) {
+        (void)ctx.synbl[idIndex];
+    }
 
     if (checkDelimiter(":=")) {
         // 赋值语句
@@ -1709,6 +1869,7 @@ bool Parser::parseAssignOrCallStatement() {
         }
 
         /* SEMANTIC: 生成赋值四元式 */
+        emitQuad(":=", lastExpressionPlace_, "", lastStatementIdentifier_);
     } else {
         // 过程调用（含无参调用）
         if (!parseCallSuffix()) {
@@ -1717,6 +1878,10 @@ bool Parser::parseAssignOrCallStatement() {
         }
 
         /* SEMANTIC: 生成过程调用四元式（或函数调用丢弃返回值） */
+        for (const string& arg : pendingActualArgs_) {
+            emitQuad("param", arg, "", "");
+        }
+        emitQuad("call", lastStatementIdentifier_, to_string(pendingActualArgs_.size()), "");
     }
 
     exitRule("赋值或调用语句", true);
@@ -1730,6 +1895,7 @@ bool Parser::parseAssignOrCallStatement() {
 
 bool Parser::parseCallSuffix() {
     enterRule("调用后缀");
+    pendingActualArgs_.clear();
 
     if (matchDelimiter("(")) {
         if (!checkDelimiter(")")) {
@@ -1768,6 +1934,7 @@ bool Parser::parseActualParameterList() {
         }
 
         /* SEMANTIC: 记录一个实参 */
+        pendingActualArgs_.push_back(lastExpressionPlace_);
 
         if (!parseActualParameterListTail()) {
             exitRule("实参表", false);
@@ -1790,6 +1957,7 @@ bool Parser::parseActualParameterListTail() {
         }
 
         /* SEMANTIC: 记录一个实参 */
+        pendingActualArgs_.push_back(lastExpressionPlace_);
     }
     // ε 情形
 
@@ -1873,14 +2041,135 @@ bool Parser::parseExpression(const vector<string>& stopTokens) {
         exprValues.push_back(val);
     }
 
+    auto reduce = [this](int prodIndex, const string& lhs, const vector<SemanticValue>& rhs) -> SemanticValue {
+        SemanticValue result;
+        result.symbol = lhs;
+        if (!rhs.empty()) result.line = rhs.front().line;
+
+        auto passThrough = [&](size_t idx) {
+            if (idx < rhs.size()) {
+                result.text = rhs[idx].text;
+                result.isCall = rhs[idx].isCall;
+                result.args = rhs[idx].args;
+                result.line = rhs[idx].line;
+            }
+        };
+
+        switch (prodIndex) {
+            case 1: case 3: case 5: case 7: case 9:
+            case 18: case 21: case 23: case 24: case 25:
+            case 26: case 27: case 28:
+                passThrough(0);
+                break;
+            case 2: {
+                string t = newTemp();
+                emitQuad("||", rhs[0].text, rhs[2].text, t);
+                result.text = t;
+                break;
+            }
+            case 4: {
+                string t = newTemp();
+                emitQuad("&&", rhs[0].text, rhs[2].text, t);
+                result.text = t;
+                break;
+            }
+            case 6: {
+                string t = newTemp();
+                emitQuad("!", rhs[1].text, "", t);
+                result.text = t;
+                break;
+            }
+            case 8: {
+                string op = rhs[1].text;
+                string t = newTemp();
+                emitQuad(op, rhs[0].text, rhs[2].text, t);
+                result.text = t;
+                break;
+            }
+            case 10: case 11: case 12: case 13: case 14: case 15:
+                passThrough(0);
+                break;
+            case 16: {
+                string t = newTemp();
+                emitQuad("+", rhs[0].text, rhs[2].text, t);
+                result.text = t;
+                break;
+            }
+            case 17: {
+                string t = newTemp();
+                emitQuad("-", rhs[0].text, rhs[2].text, t);
+                result.text = t;
+                break;
+            }
+            case 19: {
+                string t = newTemp();
+                emitQuad("*", rhs[0].text, rhs[2].text, t);
+                result.text = t;
+                break;
+            }
+            case 20: {
+                string t = newTemp();
+                emitQuad("/", rhs[0].text, rhs[2].text, t);
+                result.text = t;
+                break;
+            }
+            case 22: {
+                if (rhs[1].isCall) {
+                    for (const string& arg : rhs[1].args) {
+                        emitQuad("param", arg, "", "");
+                    }
+                    string t = newTemp();
+                    emitQuad("call", rhs[0].text, to_string(rhs[1].args.size()), t);
+                    result.text = t;
+                } else {
+                    result.text = rhs[0].text;
+                }
+                break;
+            }
+            case 29: {
+                string t = newTemp();
+                emitQuad("uminus", rhs[1].text, "", t);
+                result.text = t;
+                break;
+            }
+            case 30:
+                result.isCall = true;
+                result.args = rhs[1].args;
+                break;
+            case 31:
+                result.isCall = false;
+                break;
+            case 32:
+                result.args.push_back(rhs[0].text);
+                result.args.insert(result.args.end(), rhs[1].args.begin(), rhs[1].args.end());
+                break;
+            case 33:
+                result.args.clear();
+                break;
+            case 34:
+                result.args.push_back(rhs[1].text);
+                result.args.insert(result.args.end(), rhs[2].args.begin(), rhs[2].args.end());
+                break;
+            case 35:
+                result.args.clear();
+                break;
+            default:
+                passThrough(0);
+                break;
+        }
+        return result;
+    };
+
     string lrError;
-    // 传入 nullptr 回调：当前仅做语法校验，语义分析阶段替换为四元式生成回调
-    // &log_ 传入：输出 LR 内部的 Shift/Reduce/Accept 详细日志
-    if (!lr1Builder.parse(exprValues, lrError, nullptr, &log_)) {
+    SemanticValue acceptValue;
+    // 传入规约回调：在表达式规约时完成四元式生成
+    if (!lr1Builder.parse(exprValues, lrError, reduce, &log_, &acceptValue)) {
         error("LR(1) 表达式分析失败: " + lrError);
         exitRule("表达式", false);
         return false;
     }
+
+    lastExpressionPlace_ = acceptValue.text;
 
     while (pos_ < scanPos) {
         logMatch(advance());
@@ -1899,9 +2188,37 @@ bool Parser::parseExpression(const vector<string>& stopTokens) {
 bool Parser::parseType() {
     enterRule("类型");
 
-    if (matchKeyword("integer") || matchKeyword("real") ||
-        matchKeyword("char")    || matchKeyword("boolean") ||
-        matchKeyword("string")) {
+    if (matchKeyword("integer")) {
+        lastParsedTypeCode_ = "i";
+        lastParsedTypeIndex_ = ensureBuiltinType(lastParsedTypeCode_);
+        /* SEMANTIC: 返回类型编码（tval） */
+        exitRule("类型", true);
+        return true;
+    }
+    if (matchKeyword("real")) {
+        lastParsedTypeCode_ = "r";
+        lastParsedTypeIndex_ = ensureBuiltinType(lastParsedTypeCode_);
+        /* SEMANTIC: 返回类型编码（tval） */
+        exitRule("类型", true);
+        return true;
+    }
+    if (matchKeyword("char")) {
+        lastParsedTypeCode_ = "c";
+        lastParsedTypeIndex_ = ensureBuiltinType(lastParsedTypeCode_);
+        /* SEMANTIC: 返回类型编码（tval） */
+        exitRule("类型", true);
+        return true;
+    }
+    if (matchKeyword("boolean")) {
+        lastParsedTypeCode_ = "b";
+        lastParsedTypeIndex_ = ensureBuiltinType(lastParsedTypeCode_);
+        /* SEMANTIC: 返回类型编码（tval） */
+        exitRule("类型", true);
+        return true;
+    }
+    if (matchKeyword("string")) {
+        lastParsedTypeCode_ = "s";
+        lastParsedTypeIndex_ = ensureBuiltinType(lastParsedTypeCode_);
         /* SEMANTIC: 返回类型编码（tval） */
         exitRule("类型", true);
         return true;
