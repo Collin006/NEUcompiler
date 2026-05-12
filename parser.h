@@ -174,7 +174,7 @@ private:
 
     int currentIdIndex() const;
     int ensureBuiltinType(const string& tval);
-    string newTemp();
+    string newTemp(int typ = -1);
     int emitQuad(const string& op, const string& arg1, const string& arg2, const string& result);
     void backpatchQuadResult(int quadIndex, int target);
     void declarePendingIdentifiers(const string& cat, int typ);

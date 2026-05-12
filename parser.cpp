@@ -11,6 +11,7 @@
 namespace {
 
 const string EPSILON = "ε";
+const int INVALID_TYPE_INDEX = -1;
 
 struct Production {
     string lhs;
@@ -50,9 +51,24 @@ struct SemanticValue {
     string symbol;   // 文法符号名（终结符如 "id"/"+", 非终结符如 "Expr"）
     string text;     // 终结符的原文（标识符名/常量值），非终结符由规约生成
     int    line;     // 所在行号
+    int    typ = INVALID_TYPE_INDEX;
     bool isCall = false;
     vector<string> args;
 };
+
+int ensureBuiltinTypeShared(const string& tval) {
+    for (int i = 0; i < static_cast<int>(ctx.typel.size()); ++i) {
+        if (ctx.typel[i].tval == tval) return i;
+    }
+    TypelItem item;
+    item.tval = tval;
+    item.tpoint = -1;
+    ctx.typel.push_back(item);
+    LenlItem len;
+    len.length = (tval == "r") ? 2 : 1;
+    ctx.lenl.push_back(len);
+    return static_cast<int>(ctx.typel.size()) - 1;
+}
 
 // 规约回调：产生式编号、LHS、RHS 值列表 → 规约结果
 // 传入 nullptr 时使用默认行为（仅透传符号名，不做语义分析）
@@ -673,9 +689,10 @@ bool tokenToExpressionValue(const Token& token, SemanticValue& val) {
     if (token.type == "ID") {
         val.symbol = "id";
         int idx = -1;
-        if (parseIndex(token.value, idx) && idx >= 0 && idx < static_cast<int>(ctx.synbl.size()))
+        if (parseIndex(token.value, idx) && idx >= 0 && idx < static_cast<int>(ctx.synbl.size())) {
             val.text = ctx.synbl[idx].name;
-        else
+            val.typ = ctx.synbl[idx].typ;
+        } else
             val.text = "?";
         return true;
     }
@@ -686,6 +703,7 @@ bool tokenToExpressionValue(const Token& token, SemanticValue& val) {
             val.text = to_string(ctx.consl1[idx]);
         else
             val.text = "?";
+        val.typ = ensureBuiltinTypeShared("i");
         return true;
     }
     if (token.type == "CONSL2") {
@@ -695,11 +713,13 @@ bool tokenToExpressionValue(const Token& token, SemanticValue& val) {
             val.text = to_string(ctx.consl2[idx]);
         else
             val.text = "?";
+        val.typ = ensureBuiltinTypeShared("r");
         return true;
     }
     if (token.type == "STRING") {
         val.symbol = "string_lit";
         val.text = token.value;  // 原文（不含两端引号）
+        val.typ = ensureBuiltinTypeShared("s");
         return true;
     }
 
@@ -711,6 +731,7 @@ bool tokenToExpressionValue(const Token& token, SemanticValue& val) {
         if (kw == "true" || kw == "false") {
             val.symbol = kw;
             val.text = kw;
+            val.typ = ensureBuiltinTypeShared("b");
             return true;
         }
         return false;
@@ -768,7 +789,7 @@ bool Parser::parse() {
     tempCounter_ = 0;
     currentRoutineSymbolIndex_ = -1;
     currentRoutineParamCount_ = 0;
-    lastParsedTypeIndex_ = -1;
+    lastParsedTypeIndex_ = INVALID_TYPE_INDEX;
     lastParsedTypeCode_.clear();
     lastExpressionPlace_.clear();
     lastStatementIdentifier_.clear();
@@ -843,25 +864,14 @@ int Parser::currentIdIndex() const {
 }
 
 int Parser::ensureBuiltinType(const string& tval) {
-    for (int i = 0; i < static_cast<int>(ctx.typel.size()); ++i) {
-        if (ctx.typel[i].tval == tval) return i;
-    }
-    TypelItem item;
-    item.tval = tval;
-    item.tpoint = -1;
-    ctx.typel.push_back(item);
-    LenlItem len;
-    if (tval == "r") len.length = 2;
-    else len.length = 1;
-    ctx.lenl.push_back(len);
-    return static_cast<int>(ctx.typel.size()) - 1;
+    return ensureBuiltinTypeShared(tval);
 }
 
-string Parser::newTemp() {
+string Parser::newTemp(int typ) {
     string name = "_t" + to_string(++tempCounter_);
     SynblItem item;
     item.name = name;
-    item.typ = lastParsedTypeIndex_;
+    item.typ = typ;
     item.cat = "v";
     item.addr = scopeLevel_;
     ctx.synbl.push_back(item);
@@ -1151,7 +1161,6 @@ bool Parser::parseProgram() {
     if (programIdx >= 0 && programIdx < static_cast<int>(ctx.synbl.size())) {
         ctx.synbl[programIdx].cat = "p";
         ctx.synbl[programIdx].addr = 0;
-        if (ctx.synbl[programIdx].typ < 0) ctx.synbl[programIdx].typ = ensureBuiltinType("i");
     }
 
     if (!matchDelimiter(";")) {
@@ -1840,7 +1849,6 @@ bool Parser::parseWhileStatement() {
 bool Parser::parseAssignOrCallStatement() {
     enterRule("赋值或调用语句");
 
-    int idIndex = currentIdIndex();
     string idName = tokenToString(current());
 
     if (!matchId()) {
@@ -1851,9 +1859,6 @@ bool Parser::parseAssignOrCallStatement() {
 
     /* SEMANTIC: 查符号表获取该标识符信息 */
     lastStatementIdentifier_ = idName;
-    if (idIndex >= 0 && idIndex < static_cast<int>(ctx.synbl.size())) {
-        (void)ctx.synbl[idIndex];
-    }
 
     if (checkDelimiter(":=")) {
         // 赋值语句
@@ -2052,65 +2057,96 @@ bool Parser::parseExpression(const vector<string>& stopTokens) {
                 result.isCall = rhs[idx].isCall;
                 result.args = rhs[idx].args;
                 result.line = rhs[idx].line;
+                result.typ = rhs[idx].typ;
             }
         };
 
         switch (prodIndex) {
+            // 产生式编号见 ExpressionLR1Builder::initGrammar()
+            // 1/3/5/7/9/18/21/23~28: 语义透传
             case 1: case 3: case 5: case 7: case 9:
             case 18: case 21: case 23: case 24: case 25:
             case 26: case 27: case 28:
                 passThrough(0);
                 break;
             case 2: {
-                string t = newTemp();
+                int boolTyp = ensureBuiltinType("b");
+                string t = newTemp(boolTyp);
                 emitQuad("||", rhs[0].text, rhs[2].text, t);
                 result.text = t;
+                result.typ = boolTyp;
                 break;
             }
             case 4: {
-                string t = newTemp();
+                int boolTyp = ensureBuiltinType("b");
+                string t = newTemp(boolTyp);
                 emitQuad("&&", rhs[0].text, rhs[2].text, t);
                 result.text = t;
+                result.typ = boolTyp;
                 break;
             }
             case 6: {
-                string t = newTemp();
+                int boolTyp = ensureBuiltinType("b");
+                string t = newTemp(boolTyp);
                 emitQuad("!", rhs[1].text, "", t);
                 result.text = t;
+                result.typ = boolTyp;
                 break;
             }
             case 8: {
                 string op = rhs[1].text;
-                string t = newTemp();
+                int boolTyp = ensureBuiltinType("b");
+                string t = newTemp(boolTyp);
                 emitQuad(op, rhs[0].text, rhs[2].text, t);
                 result.text = t;
+                result.typ = boolTyp;
                 break;
             }
             case 10: case 11: case 12: case 13: case 14: case 15:
                 passThrough(0);
                 break;
             case 16: {
-                string t = newTemp();
+                int realTyp = ensureBuiltinType("r");
+                int resultTyp = (rhs[0].typ == realTyp || rhs[2].typ == realTyp)
+                                    ? realTyp
+                                    : rhs[0].typ;
+                string t = newTemp(resultTyp);
                 emitQuad("+", rhs[0].text, rhs[2].text, t);
                 result.text = t;
+                result.typ = resultTyp;
                 break;
             }
             case 17: {
-                string t = newTemp();
+                int realTyp = ensureBuiltinType("r");
+                int resultTyp = (rhs[0].typ == realTyp || rhs[2].typ == realTyp)
+                                    ? realTyp
+                                    : rhs[0].typ;
+                string t = newTemp(resultTyp);
                 emitQuad("-", rhs[0].text, rhs[2].text, t);
                 result.text = t;
+                result.typ = resultTyp;
                 break;
             }
             case 19: {
-                string t = newTemp();
+                int realTyp = ensureBuiltinType("r");
+                int resultTyp = (rhs[0].typ == realTyp || rhs[2].typ == realTyp)
+                                    ? realTyp
+                                    : rhs[0].typ;
+                string t = newTemp(resultTyp);
                 emitQuad("*", rhs[0].text, rhs[2].text, t);
                 result.text = t;
+                result.typ = resultTyp;
                 break;
             }
             case 20: {
-                string t = newTemp();
+                int realTyp = ensureBuiltinType("r");
+                int resultTyp = (rhs[0].typ == realTyp || rhs[2].typ == realTyp)
+                                    ? realTyp
+                                    : rhs[0].typ;
+                string t = newTemp(resultTyp);
                 emitQuad("/", rhs[0].text, rhs[2].text, t);
                 result.text = t;
+                result.typ = resultTyp;
                 break;
             }
             case 22: {
@@ -2118,18 +2154,27 @@ bool Parser::parseExpression(const vector<string>& stopTokens) {
                     for (const string& arg : rhs[1].args) {
                         emitQuad("param", arg, "", "");
                     }
-                    string t = newTemp();
+                    int callResultTyp = rhs[0].typ;
+                    if (callResultTyp < 0) callResultTyp = ensureBuiltinType("i");
+                    string t = newTemp(callResultTyp);
                     emitQuad("call", rhs[0].text, to_string(rhs[1].args.size()), t);
                     result.text = t;
+                    result.typ = callResultTyp;
                 } else {
                     result.text = rhs[0].text;
+                    result.typ = rhs[0].typ;
                 }
                 break;
             }
             case 29: {
-                string t = newTemp();
+                int intTyp = ensureBuiltinType("i");
+                int realTyp = ensureBuiltinType("r");
+                int unaryTyp = rhs[1].typ;
+                if (unaryTyp != intTyp && unaryTyp != realTyp) unaryTyp = intTyp;
+                string t = newTemp(unaryTyp);
                 emitQuad("uminus", rhs[1].text, "", t);
                 result.text = t;
+                result.typ = unaryTyp;
                 break;
             }
             case 30:
