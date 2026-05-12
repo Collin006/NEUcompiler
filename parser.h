@@ -52,6 +52,9 @@ public:
     // 获取四元式输出文本
     string getQuadrupleDump() const;
 
+    // 获取符号表输出文本
+    string getSymbolTableDump() const;
+
 private:
     // ==================== Token 导航 ====================
     const vector<Token>& tokens_;

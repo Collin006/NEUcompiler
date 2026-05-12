@@ -807,6 +807,8 @@ bool Parser::parse() {
     }
 
     if (ok && !hasError_) {
+        logInfo(getSymbolTableDump());
+        logInfo(getQuadrupleDump());
         logInfo("===== 语法分析通过 =====");
     } else {
         logInfo("===== 语法分析失败 =====");
@@ -851,6 +853,36 @@ string Parser::getQuadrupleDump() const {
     if (quadruples_.empty()) {
         out << "(empty)\n";
     }
+    return out.str();
+}
+
+string Parser::getSymbolTableDump() const {
+    ostringstream out;
+    out << "===== 符号表(SYNBL) =====\n";
+    out << "idx\tname\ttyp\tcat\taddr\n";
+    for (size_t i = 0; i < ctx.synbl.size(); ++i) {
+        const SynblItem& s = ctx.synbl[i];
+        out << i << '\t' << s.name << '\t' << s.typ << '\t'
+            << s.cat << '\t' << s.addr << '\n';
+    }
+    if (ctx.synbl.empty()) out << "(empty)\n";
+
+    out << "===== 类型表(TYPEL) =====\n";
+    out << "idx\ttval\ttpoint\n";
+    for (size_t i = 0; i < ctx.typel.size(); ++i) {
+        const TypelItem& t = ctx.typel[i];
+        out << i << '\t' << t.tval << '\t' << t.tpoint << '\n';
+    }
+    if (ctx.typel.empty()) out << "(empty)\n";
+
+    out << "===== 过程/函数信息表(PFINFL) =====\n";
+    out << "idx\tlevel\toff\tfn\tentry\tparam\n";
+    for (size_t i = 0; i < ctx.pfinfl.size(); ++i) {
+        const PfinflItem& p = ctx.pfinfl[i];
+        out << i << '\t' << p.level << '\t' << p.off << '\t'
+            << p.fn << '\t' << p.entry << '\t' << p.param << '\n';
+    }
+    if (ctx.pfinfl.empty()) out << "(empty)\n";
     return out.str();
 }
 
