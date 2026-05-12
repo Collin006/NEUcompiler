@@ -502,6 +502,11 @@ private:
     }
 };
 
+const ExpressionLR1Builder& expressionLR1Builder() {
+    static ExpressionLR1Builder builder;
+    return builder;
+}
+
 bool tokenMatchesStop(const Token& token, const vector<string>& stopTokens) {
     if (stopTokens.empty()) return false;
 
@@ -610,7 +615,6 @@ Parser::Parser(const vector<Token>& tokens)
     , pos_(0)
     , indent_(0)
     , hasError_(false)
-    , expressionAnalysisPrinted_(false)
 {
 }
 
@@ -619,7 +623,6 @@ bool Parser::parse() {
     indent_ = 0;
     hasError_ = false;
     errorMsg_.clear();
-    expressionAnalysisPrinted_ = false;
 
     if (tokens_.empty()) {
         logInfo("token 序列为空，无需分析");
@@ -640,6 +643,19 @@ bool Parser::parse() {
     }
 
     return ok && !hasError_;
+}
+
+bool Parser::getExpressionAnalysisDump(string& dump, string& error) {
+    const ExpressionLR1Builder& lr1Builder = expressionLR1Builder();
+    if (!lr1Builder.isBuildOk()) {
+        error = lr1Builder.buildError();
+        dump.clear();
+        return false;
+    }
+
+    dump = lr1Builder.dumpSelectAndTable();
+    error.clear();
+    return true;
 }
 
 string Parser::getLog() const {
@@ -1657,21 +1673,11 @@ bool Parser::parseExpression(const vector<string>& stopTokens) {
     enterRule("表达式");
 
     // 表达式文法固定不变：使用静态构建器复用 SELECT/ACTION/GOTO，避免重复建表开销。
-    static ExpressionLR1Builder lr1Builder;
+    const ExpressionLR1Builder& lr1Builder = expressionLR1Builder();
     if (!lr1Builder.isBuildOk()) {
         error("表达式 LR(1) 自动构建失败: " + lr1Builder.buildError());
         exitRule("表达式", false);
         return false;
-    }
-
-    if (!expressionAnalysisPrinted_) {
-        logInfo("自动构建表达式 SELECT 集和 LR(1) 分析表如下：");
-        istringstream iss(lr1Builder.dumpSelectAndTable());
-        string line;
-        while (getline(iss, line)) {
-            logInfo(line);
-        }
-        expressionAnalysisPrinted_ = true;
     }
 
     size_t beginPos = pos_;
