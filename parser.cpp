@@ -2209,7 +2209,8 @@ bool Parser::parseExpression(const vector<string>& stopTokens) {
                 int unaryTyp = rhs[1].typ;
                 if (unaryTyp != intTyp && unaryTyp != realTyp) unaryTyp = intTyp;
                 string t = newTemp(unaryTyp);
-                emitQuad("uminus", rhs[1].text, "", t);
+                string zero = (unaryTyp == realTyp) ? "0.0" : "0";
+                emitQuad("-", zero, rhs[1].text, t);
                 result.text = t;
                 result.typ = unaryTyp;
                 break;
