@@ -521,8 +521,8 @@ bool tokenMatchesStop(const Token& token, const vector<string>& stopTokens) {
         int idx = -1;
         if (!parseIndex(token.value, idx)) return false;
         if (idx >= 0 && idx < static_cast<int>(ctx.keywordTable.size())) {
-            const string& kw = ctx.keywordTable[idx];
-            return find(stopTokens.begin(), stopTokens.end(), kw) != stopTokens.end();
+            const string& keyword = ctx.keywordTable[idx];
+            return find(stopTokens.begin(), stopTokens.end(), keyword) != stopTokens.end();
         }
         return false;
     }
@@ -1687,16 +1687,16 @@ bool Parser::parseExpression(const vector<string>& stopTokens) {
 
         if (t.type == "DELIMITER") {
             int idx = -1;
-            bool idxOk = false;
+            bool isIndexValid = false;
             try {
                 size_t p = 0;
                 idx = stoi(t.value, &p);
-                idxOk = (p == t.value.size());
+                isIndexValid = (p == t.value.size());
             } catch (...) {
-                idxOk = false;
+                isIndexValid = false;
             }
 
-            if (idxOk && idx >= 0 && idx < static_cast<int>(ctx.delimiterTable.size())) {
+            if (isIndexValid && idx >= 0 && idx < static_cast<int>(ctx.delimiterTable.size())) {
                 const string& d = ctx.delimiterTable[idx];
                 if (d == "(") {
                     parenDepth++;
