@@ -7,6 +7,7 @@
 #include <queue>
 #include <unordered_set>
 #include <functional>
+#include <iomanip>
 
 namespace {
 
@@ -857,30 +858,34 @@ string Parser::getQuadrupleDump() const {
 }
 
 string Parser::getSymbolTableDump() const {
+    using std::left;
+    using std::setw;
     ostringstream out;
     out << "===== 符号表(SYNBL) =====\n";
-    out << "idx\tname\ttyp\tcat\taddr\n";
+    out << left << setw(6) << "idx" << setw(24) << "name"
+        << setw(8) << "typ" << setw(8) << "cat" << setw(8) << "addr" << '\n';
     for (size_t i = 0; i < ctx.synbl.size(); ++i) {
         const SynblItem& s = ctx.synbl[i];
-        out << i << '\t' << s.name << '\t' << s.typ << '\t'
-            << s.cat << '\t' << s.addr << '\n';
+        out << left << setw(6) << i << setw(24) << s.name
+            << setw(8) << s.typ << setw(8) << s.cat << setw(8) << s.addr << '\n';
     }
     if (ctx.synbl.empty()) out << "(empty)\n";
 
     out << "===== 类型表(TYPEL) =====\n";
-    out << "idx\ttval\ttpoint\n";
+    out << left << setw(6) << "idx" << setw(8) << "tval" << setw(8) << "tpoint" << '\n';
     for (size_t i = 0; i < ctx.typel.size(); ++i) {
         const TypelItem& t = ctx.typel[i];
-        out << i << '\t' << t.tval << '\t' << t.tpoint << '\n';
+        out << left << setw(6) << i << setw(8) << t.tval << setw(8) << t.tpoint << '\n';
     }
     if (ctx.typel.empty()) out << "(empty)\n";
 
     out << "===== 过程/函数信息表(PFINFL) =====\n";
-    out << "idx\tlevel\toff\tfn\tentry\tparam\n";
+    out << left << setw(6) << "idx" << setw(8) << "level" << setw(8) << "off"
+        << setw(8) << "fn" << setw(8) << "entry" << setw(8) << "param" << '\n';
     for (size_t i = 0; i < ctx.pfinfl.size(); ++i) {
         const PfinflItem& p = ctx.pfinfl[i];
-        out << i << '\t' << p.level << '\t' << p.off << '\t'
-            << p.fn << '\t' << p.entry << '\t' << p.param << '\n';
+        out << left << setw(6) << i << setw(8) << p.level << setw(8) << p.off
+            << setw(8) << p.fn << setw(8) << p.entry << setw(8) << p.param << '\n';
     }
     if (ctx.pfinfl.empty()) out << "(empty)\n";
     return out.str();
