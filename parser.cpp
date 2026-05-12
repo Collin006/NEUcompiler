@@ -2,6 +2,604 @@
 #include <stdexcept>
 #include <algorithm>
 #include <fstream>
+#include <set>
+#include <map>
+#include <queue>
+#include <unordered_set>
+
+namespace {
+
+const string EPSILON = "ε";
+
+struct Production {
+    string lhs;
+    vector<string> rhs;
+};
+
+struct LR1Item {
+    int productionIndex;
+    int dotPos;
+    string lookahead;
+
+    bool operator==(const LR1Item& other) const {
+        return productionIndex == other.productionIndex &&
+               dotPos == other.dotPos &&
+               lookahead == other.lookahead;
+    }
+
+    bool operator<(const LR1Item& other) const {
+        if (productionIndex != other.productionIndex) return productionIndex < other.productionIndex;
+        if (dotPos != other.dotPos) return dotPos < other.dotPos;
+        return lookahead < other.lookahead;
+    }
+};
+
+struct LRAction {
+    enum Type { Error, Shift, Reduce, Accept } type = Error;
+    int value = -1; // Shift: state, Reduce: productionIndex
+};
+
+class ExpressionLR1Builder {
+public:
+    ExpressionLR1Builder() {
+        initGrammar();
+        buildOk_ = computeFirstSets() && buildCanonicalCollection() && buildParsingTable();
+        if (buildOk_) {
+            computeSelectSets();
+        }
+    }
+
+    bool isBuildOk() const { return buildOk_; }
+    string buildError() const { return buildError_; }
+
+    bool parse(const vector<string>& inputSymbols, string& errorMsg) const {
+        vector<int> stateStack;
+        stateStack.push_back(0);
+        size_t ip = 0;
+
+        while (true) {
+            int state = stateStack.back();
+            string lookahead = (ip < inputSymbols.size()) ? inputSymbols[ip] : "$";
+            LRAction action = getAction(state, lookahead);
+
+            if (action.type == LRAction::Shift) {
+                stateStack.push_back(action.value);
+                ip++;
+                continue;
+            }
+
+            if (action.type == LRAction::Reduce) {
+                const Production& p = productions_[action.value];
+                for (size_t i = 0; i < p.rhs.size(); ++i) {
+                    if (stateStack.empty()) {
+                        errorMsg = "LR 栈下溢（规约阶段）";
+                        return false;
+                    }
+                    stateStack.pop_back();
+                }
+
+                if (stateStack.empty()) {
+                    errorMsg = "LR 栈为空，无法 GOTO";
+                    return false;
+                }
+
+                int fromState = stateStack.back();
+                auto gIt = gotoTable_.find({fromState, p.lhs});
+                if (gIt == gotoTable_.end()) {
+                    errorMsg = "缺少 GOTO[" + to_string(fromState) + ", " + p.lhs + "]";
+                    return false;
+                }
+                stateStack.push_back(gIt->second);
+                continue;
+            }
+
+            if (action.type == LRAction::Accept) {
+                if (ip != inputSymbols.size()) {
+                    errorMsg = "表达式未完全消耗";
+                    return false;
+                }
+                return true;
+            }
+
+            errorMsg = "无法在状态 " + to_string(state) + " 处理符号 '" + lookahead + "'";
+            vector<string> expected = expectedTerminals(state);
+            if (!expected.empty()) {
+                errorMsg += "，期望: ";
+                for (size_t i = 0; i < expected.size(); ++i) {
+                    if (i) errorMsg += ", ";
+                    errorMsg += expected[i];
+                }
+            }
+            return false;
+        }
+    }
+
+    string dumpSelectAndTable() const {
+        ostringstream out;
+        out << "===== 表达式文法 SELECT 集（自动构建） =====\n";
+        for (size_t i = 1; i < productions_.size(); ++i) { // 跳过增广文法
+            out << "P" << i << ": " << productionToString(i) << "\n";
+            out << "  SELECT = {";
+            bool first = true;
+            auto it = selectSets_.find(static_cast<int>(i));
+            if (it != selectSets_.end()) {
+                for (const string& t : it->second) {
+                    if (!first) out << ", ";
+                    out << t;
+                    first = false;
+                }
+            }
+            out << "}\n";
+        }
+
+        out << "===== 表达式 LR(1) ACTION 表（自动构建） =====\n";
+        for (size_t state = 0; state < states_.size(); ++state) {
+            bool printed = false;
+            for (const string& t : orderedTerminalsWithEnd_) {
+                auto it = actionTable_.find({static_cast<int>(state), t});
+                if (it == actionTable_.end()) continue;
+                if (!printed) {
+                    out << "State " << state << ":\n";
+                    printed = true;
+                }
+                out << "  ACTION[" << t << "] = " << actionToString(it->second) << "\n";
+            }
+        }
+
+        out << "===== 表达式 LR(1) GOTO 表（自动构建） =====\n";
+        for (size_t state = 0; state < states_.size(); ++state) {
+            bool printed = false;
+            for (const string& nt : orderedNonTerminals_) {
+                if (nt == startPrime_) continue;
+                auto it = gotoTable_.find({static_cast<int>(state), nt});
+                if (it == gotoTable_.end()) continue;
+                if (!printed) {
+                    out << "State " << state << ":\n";
+                    printed = true;
+                }
+                out << "  GOTO[" << nt << "] = " << it->second << "\n";
+            }
+        }
+        return out.str();
+    }
+
+private:
+    string startSymbol_ = "Expr";
+    string startPrime_ = "Expr'";
+
+    vector<Production> productions_;
+    set<string> nonTerminals_;
+    set<string> terminals_;
+
+    map<string, set<string>> firstSets_;
+
+    vector<set<LR1Item>> states_;
+    map<pair<int, string>, int> transitions_;
+    map<pair<int, string>, LRAction> actionTable_;
+    map<pair<int, string>, int> gotoTable_;
+    map<int, set<string>> selectSets_;
+
+    vector<string> orderedTerminalsWithEnd_;
+    vector<string> orderedNonTerminals_;
+
+    bool buildOk_ = false;
+    string buildError_;
+
+private:
+    void initGrammar() {
+        // 增广文法
+        productions_.push_back({startPrime_, {startSymbol_}});
+
+        // 形式化表达式文法
+        productions_.push_back({"Expr", {"BoolExpr"}});
+        productions_.push_back({"BoolExpr", {"BoolExpr", "||", "BoolTerm"}});
+        productions_.push_back({"BoolExpr", {"BoolTerm"}});
+        productions_.push_back({"BoolTerm", {"BoolTerm", "&&", "BoolFactor"}});
+        productions_.push_back({"BoolTerm", {"BoolFactor"}});
+        productions_.push_back({"BoolFactor", {"!", "BoolFactor"}});
+        productions_.push_back({"BoolFactor", {"RelExpr"}});
+        productions_.push_back({"RelExpr", {"ArithExpr", "RelOp", "ArithExpr"}});
+        productions_.push_back({"RelExpr", {"ArithExpr"}});
+        productions_.push_back({"RelOp", {">"}});
+        productions_.push_back({"RelOp", {">="}});
+        productions_.push_back({"RelOp", {"<"}});
+        productions_.push_back({"RelOp", {"<="}});
+        productions_.push_back({"RelOp", {"="}});
+        productions_.push_back({"RelOp", {"<>"}});
+        productions_.push_back({"ArithExpr", {"ArithExpr", "+", "Term"}});
+        productions_.push_back({"ArithExpr", {"ArithExpr", "-", "Term"}});
+        productions_.push_back({"ArithExpr", {"Term"}});
+        productions_.push_back({"Term", {"Term", "*", "Factor"}});
+        productions_.push_back({"Term", {"Term", "/", "Factor"}});
+        productions_.push_back({"Term", {"Factor"}});
+        productions_.push_back({"Factor", {"id", "CallSuffix"}});
+        productions_.push_back({"Factor", {"int"}});
+        productions_.push_back({"Factor", {"real"}});
+        productions_.push_back({"Factor", {"string_lit"}});
+        productions_.push_back({"Factor", {"true"}});
+        productions_.push_back({"Factor", {"false"}});
+        productions_.push_back({"Factor", {"(", "Expr", ")"}});
+        productions_.push_back({"Factor", {"-", "Factor"}});
+        productions_.push_back({"CallSuffix", {"(", "ActualParamList", ")"}});
+        productions_.push_back({"CallSuffix", {}}); // ε
+        productions_.push_back({"ActualParamList", {"Expr", "ActualParamListTail"}});
+        productions_.push_back({"ActualParamList", {}}); // ε
+        productions_.push_back({"ActualParamListTail", {",", "Expr", "ActualParamListTail"}});
+        productions_.push_back({"ActualParamListTail", {}}); // ε
+
+        for (const Production& p : productions_) {
+            nonTerminals_.insert(p.lhs);
+        }
+
+        for (const Production& p : productions_) {
+            for (const string& sym : p.rhs) {
+                if (!nonTerminals_.count(sym)) {
+                    terminals_.insert(sym);
+                }
+            }
+        }
+
+        orderedNonTerminals_.assign(nonTerminals_.begin(), nonTerminals_.end());
+        orderedTerminalsWithEnd_.assign(terminals_.begin(), terminals_.end());
+        orderedTerminalsWithEnd_.push_back("$");
+    }
+
+    bool isTerminal(const string& sym) const {
+        return terminals_.count(sym) > 0 || sym == "$";
+    }
+
+    bool computeFirstSets() {
+        for (const string& t : terminals_) {
+            firstSets_[t].insert(t);
+        }
+        firstSets_["$"].insert("$");
+        for (const string& nt : nonTerminals_) {
+            (void)firstSets_[nt];
+        }
+
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            for (const Production& p : productions_) {
+                if (p.rhs.empty()) {
+                    if (firstSets_[p.lhs].insert(EPSILON).second) changed = true;
+                    continue;
+                }
+
+                bool allNullable = true;
+                for (const string& sym : p.rhs) {
+                    const set<string>& fs = firstSets_[sym];
+                    for (const string& x : fs) {
+                        if (x == EPSILON) continue;
+                        if (firstSets_[p.lhs].insert(x).second) changed = true;
+                    }
+
+                    if (!fs.count(EPSILON)) {
+                        allNullable = false;
+                        break;
+                    }
+                }
+
+                if (allNullable) {
+                    if (firstSets_[p.lhs].insert(EPSILON).second) changed = true;
+                }
+            }
+        }
+        return true;
+    }
+
+    set<string> firstOfSequence(const vector<string>& sequence) const {
+        set<string> result;
+        if (sequence.empty()) {
+            result.insert(EPSILON);
+            return result;
+        }
+
+        bool allNullable = true;
+        for (const string& sym : sequence) {
+            auto it = firstSets_.find(sym);
+            if (it == firstSets_.end()) {
+                result.insert(sym);
+                allNullable = false;
+                break;
+            }
+
+            for (const string& x : it->second) {
+                if (x != EPSILON) result.insert(x);
+            }
+
+            if (!it->second.count(EPSILON)) {
+                allNullable = false;
+                break;
+            }
+        }
+
+        if (allNullable) result.insert(EPSILON);
+        return result;
+    }
+
+    set<LR1Item> closure(const set<LR1Item>& items) const {
+        set<LR1Item> result = items;
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            vector<LR1Item> snapshot(result.begin(), result.end());
+            for (const LR1Item& item : snapshot) {
+                const Production& p = productions_[item.productionIndex];
+                if (item.dotPos >= static_cast<int>(p.rhs.size())) continue;
+
+                const string& B = p.rhs[item.dotPos];
+                if (!nonTerminals_.count(B)) continue;
+
+                vector<string> beta;
+                for (size_t i = static_cast<size_t>(item.dotPos + 1); i < p.rhs.size(); ++i) {
+                    beta.push_back(p.rhs[i]);
+                }
+                beta.push_back(item.lookahead);
+
+                set<string> lookaheads = firstOfSequence(beta);
+                for (size_t pi = 0; pi < productions_.size(); ++pi) {
+                    if (productions_[pi].lhs != B) continue;
+                    for (const string& la : lookaheads) {
+                        if (la == EPSILON) continue;
+                        LR1Item ni{static_cast<int>(pi), 0, la};
+                        if (result.insert(ni).second) changed = true;
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    set<LR1Item> gotoItems(const set<LR1Item>& items, const string& symbol) const {
+        set<LR1Item> moved;
+        for (const LR1Item& item : items) {
+            const Production& p = productions_[item.productionIndex];
+            if (item.dotPos < static_cast<int>(p.rhs.size()) && p.rhs[item.dotPos] == symbol) {
+                moved.insert({item.productionIndex, item.dotPos + 1, item.lookahead});
+            }
+        }
+        if (moved.empty()) return moved;
+        return closure(moved);
+    }
+
+    int findState(const set<LR1Item>& state) const {
+        for (size_t i = 0; i < states_.size(); ++i) {
+            if (states_[i] == state) return static_cast<int>(i);
+        }
+        return -1;
+    }
+
+    bool buildCanonicalCollection() {
+        set<LR1Item> initItems;
+        initItems.insert({0, 0, "$"});
+        states_.push_back(closure(initItems));
+
+        queue<int> q;
+        q.push(0);
+
+        set<string> symbols = terminals_;
+        symbols.insert(nonTerminals_.begin(), nonTerminals_.end());
+
+        while (!q.empty()) {
+            int i = q.front();
+            q.pop();
+
+            for (const string& X : symbols) {
+                set<LR1Item> g = gotoItems(states_[i], X);
+                if (g.empty()) continue;
+
+                int j = findState(g);
+                if (j < 0) {
+                    states_.push_back(g);
+                    j = static_cast<int>(states_.size() - 1);
+                    q.push(j);
+                }
+                transitions_[{i, X}] = j;
+            }
+        }
+        return true;
+    }
+
+    bool setActionWithCheck(int state, const string& terminal, const LRAction& action) {
+        pair<int, string> key = {state, terminal};
+        auto it = actionTable_.find(key);
+        if (it == actionTable_.end()) {
+            actionTable_[key] = action;
+            return true;
+        }
+
+        if (it->second.type == action.type && it->second.value == action.value) {
+            return true;
+        }
+
+        buildError_ = "LR(1) ACTION 冲突: state=" + to_string(state) +
+                      ", terminal=" + terminal +
+                      ", old=" + actionToString(it->second) +
+                      ", new=" + actionToString(action);
+        return false;
+    }
+
+    bool buildParsingTable() {
+        for (size_t i = 0; i < states_.size(); ++i) {
+            for (const LR1Item& item : states_[i]) {
+                const Production& p = productions_[item.productionIndex];
+                if (item.dotPos < static_cast<int>(p.rhs.size())) {
+                    const string& a = p.rhs[item.dotPos];
+                    auto tr = transitions_.find({static_cast<int>(i), a});
+                    if (tr == transitions_.end()) continue;
+
+                    if (terminals_.count(a)) {
+                        if (!setActionWithCheck(static_cast<int>(i), a, {LRAction::Shift, tr->second})) {
+                            return false;
+                        }
+                    } else if (nonTerminals_.count(a)) {
+                        gotoTable_[{static_cast<int>(i), a}] = tr->second;
+                    }
+                } else {
+                    if (p.lhs == startPrime_ && item.lookahead == "$") {
+                        if (!setActionWithCheck(static_cast<int>(i), "$", {LRAction::Accept, 0})) {
+                            return false;
+                        }
+                    } else {
+                        if (!setActionWithCheck(static_cast<int>(i), item.lookahead, {LRAction::Reduce, item.productionIndex})) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    void computeSelectSets() {
+        for (const auto& entry : actionTable_) {
+            const string& terminal = entry.first.second;
+            const LRAction& action = entry.second;
+            if (action.type == LRAction::Reduce) {
+                selectSets_[action.value].insert(terminal);
+            }
+        }
+    }
+
+    LRAction getAction(int state, const string& terminal) const {
+        auto it = actionTable_.find({state, terminal});
+        if (it == actionTable_.end()) return {};
+        return it->second;
+    }
+
+    vector<string> expectedTerminals(int state) const {
+        vector<string> res;
+        for (const string& t : orderedTerminalsWithEnd_) {
+            auto it = actionTable_.find({state, t});
+            if (it != actionTable_.end() && it->second.type != LRAction::Error) {
+                res.push_back(t);
+            }
+        }
+        return res;
+    }
+
+    string productionToString(size_t productionIndex) const {
+        const Production& p = productions_[productionIndex];
+        ostringstream out;
+        out << p.lhs << " -> ";
+        if (p.rhs.empty()) {
+            out << EPSILON;
+        } else {
+            for (size_t i = 0; i < p.rhs.size(); ++i) {
+                if (i) out << " ";
+                out << p.rhs[i];
+            }
+        }
+        return out.str();
+    }
+
+    static string actionToString(const LRAction& action) {
+        if (action.type == LRAction::Shift) return "s" + to_string(action.value);
+        if (action.type == LRAction::Reduce) return "r" + to_string(action.value);
+        if (action.type == LRAction::Accept) return "acc";
+        return "err";
+    }
+};
+
+bool tokenMatchesStop(const Token& token, const vector<string>& stopTokens) {
+    if (stopTokens.empty()) return false;
+
+    auto parseIndex = [](const string& text, int& out) -> bool {
+        try {
+            size_t pos = 0;
+            int value = stoi(text, &pos);
+            if (pos != text.size()) return false;
+            out = value;
+            return true;
+        } catch (...) {
+            return false;
+        }
+    };
+
+    if (token.type == "KEYWORD") {
+        int idx = -1;
+        if (!parseIndex(token.value, idx)) return false;
+        if (idx >= 0 && idx < static_cast<int>(ctx.keywordTable.size())) {
+            const string& keyword = ctx.keywordTable[idx];
+            return find(stopTokens.begin(), stopTokens.end(), keyword) != stopTokens.end();
+        }
+        return false;
+    }
+
+    if (token.type == "DELIMITER") {
+        int idx = -1;
+        if (!parseIndex(token.value, idx)) return false;
+        if (idx >= 0 && idx < static_cast<int>(ctx.delimiterTable.size())) {
+            const string& d = ctx.delimiterTable[idx];
+            return find(stopTokens.begin(), stopTokens.end(), d) != stopTokens.end();
+        }
+        return false;
+    }
+
+    return false;
+}
+
+bool tokenToExpressionSymbol(const Token& token, string& symbol) {
+    auto parseIndex = [](const string& text, int& out) -> bool {
+        try {
+            size_t pos = 0;
+            int value = stoi(text, &pos);
+            if (pos != text.size()) return false;
+            out = value;
+            return true;
+        } catch (...) {
+            return false;
+        }
+    };
+
+    if (token.type == "ID") {
+        symbol = "id";
+        return true;
+    }
+    if (token.type == "CONSL1") {
+        symbol = "int";
+        return true;
+    }
+    if (token.type == "CONSL2") {
+        symbol = "real";
+        return true;
+    }
+    if (token.type == "STRING") {
+        symbol = "string_lit";
+        return true;
+    }
+
+    if (token.type == "KEYWORD") {
+        int idx = -1;
+        if (!parseIndex(token.value, idx)) return false;
+        if (idx < 0 || idx >= static_cast<int>(ctx.keywordTable.size())) return false;
+        const string& kw = ctx.keywordTable[idx];
+        if (kw == "true" || kw == "false") {
+            symbol = kw;
+            return true;
+        }
+        return false;
+    }
+
+    if (token.type == "DELIMITER") {
+        int idx = -1;
+        if (!parseIndex(token.value, idx)) return false;
+        if (idx < 0 || idx >= static_cast<int>(ctx.delimiterTable.size())) return false;
+        const string& d = ctx.delimiterTable[idx];
+        static const set<string> allowed = {
+            "(", ")", ",", "+", "-", "*", "/", ">", ">=", "<", "<=", "=", "<>", "&&", "||", "!"
+        };
+        if (allowed.count(d)) {
+            symbol = d;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+} // namespace
 
 // ============================================================
 // 构造 & 顶层入口
@@ -12,6 +610,7 @@ Parser::Parser(const vector<Token>& tokens)
     , pos_(0)
     , indent_(0)
     , hasError_(false)
+    , expressionAnalysisPrinted_(false)
 {
 }
 
@@ -20,6 +619,7 @@ bool Parser::parse() {
     indent_ = 0;
     hasError_ = false;
     errorMsg_.clear();
+    expressionAnalysisPrinted_ = false;
 
     if (tokens_.empty()) {
         logInfo("token 序列为空，无需分析");
@@ -1050,65 +1650,102 @@ bool Parser::parseActualParameterListTail() {
 }
 
 // ============================================================
-// §10 表达式（占位实现）
-//
-// 完整的表达式分析（布尔表达式、关系表达式、算术表达式）
-// 后续由 LR / SLR 分析器接管。
-// 当前占位策略：依次消耗表达式 token，遇到 stopToken 或语句边界即停止。
+// §10 表达式（LR(1) 自动构建）
 // ============================================================
 
 bool Parser::parseExpression(const vector<string>& stopTokens) {
     enterRule("表达式");
 
-    int parenDepth = 0; // 跟踪括号嵌套
+    // 表达式文法固定不变：使用静态构建器复用 SELECT/ACTION/GOTO，避免重复建表开销。
+    static ExpressionLR1Builder lr1Builder;
+    if (!lr1Builder.isBuildOk()) {
+        error("表达式 LR(1) 自动构建失败: " + lr1Builder.buildError());
+        exitRule("表达式", false);
+        return false;
+    }
 
-    while (!isAtEnd()) {
-        Token t = current();
+    if (!expressionAnalysisPrinted_) {
+        logInfo("自动构建表达式 SELECT 集和 LR(1) 分析表如下：");
+        istringstream iss(lr1Builder.dumpSelectAndTable());
+        string line;
+        while (getline(iss, line)) {
+            logInfo(line);
+        }
+        expressionAnalysisPrinted_ = true;
+    }
 
-        // 检查是否为停止 token（只在括号深度为 0 时生效）
-        if (t.type == "KEYWORD" && parenDepth == 0) {
-            int idx = stoi(t.value);
-            if (idx >= 0 && idx < static_cast<int>(ctx.keywordTable.size())) {
-                const string& kw = ctx.keywordTable[idx];
-                bool isStop = false;
-                for (const string& s : stopTokens) {
-                    if (kw == s) { isStop = true; break; }
-                }
-                if (isStop) break;
-            }
+    size_t beginPos = pos_;
+    size_t scanPos = pos_;
+    int parenDepth = 0;
+
+    while (scanPos < tokens_.size()) {
+        const Token& t = tokens_[scanPos];
+
+        if (parenDepth == 0 && tokenMatchesStop(t, stopTokens)) {
+            break;
         }
 
-        if (t.type == "DELIMITER" && parenDepth == 0) {
-            int idx = stoi(t.value);
-            if (idx >= 0 && idx < static_cast<int>(ctx.delimiterTable.size())) {
-                const string& d = ctx.delimiterTable[idx];
-                bool isStop = false;
-                for (const string& s : stopTokens) {
-                    if (d == s) { isStop = true; break; }
-                }
-                if (isStop) break;
-            }
-        }
-
-        // 跟踪括号深度
         if (t.type == "DELIMITER") {
-            int idx = stoi(t.value);
-            if (idx >= 0 && idx < static_cast<int>(ctx.delimiterTable.size())) {
+            int idx = -1;
+            bool isIndexValid = false;
+            try {
+                size_t p = 0;
+                idx = stoi(t.value, &p);
+                isIndexValid = (p == t.value.size());
+            } catch (...) {
+                isIndexValid = false;
+            }
+
+            if (isIndexValid && idx >= 0 && idx < static_cast<int>(ctx.delimiterTable.size())) {
                 const string& d = ctx.delimiterTable[idx];
-                if (d == "(") parenDepth++;
-                if (d == ")") {
-                    parenDepth--;
-                    if (parenDepth < 0) break; // 多余的 )
+                if (d == "(") {
+                    parenDepth++;
+                } else if (d == ")") {
+                    if (parenDepth > 0) {
+                        parenDepth--;
+                    } else {
+                        // 非平衡右括号交由外层规则处理
+                        break;
+                    }
                 }
             }
         }
 
-        // 消耗并记录 token
+        scanPos++;
+    }
+
+    if (scanPos == beginPos) {
+        error("缺少表达式");
+        exitRule("表达式", false);
+        return false;
+    }
+
+    vector<string> symbols;
+    symbols.reserve(scanPos - beginPos);
+
+    for (size_t i = beginPos; i < scanPos; ++i) {
+        const Token& t = tokens_[i];
+        string sym;
+        if (!tokenToExpressionSymbol(t, sym)) {
+            error("表达式中出现非法记号: " + tokenToString(t));
+            exitRule("表达式", false);
+            return false;
+        }
+        symbols.push_back(sym);
+    }
+
+    string lrError;
+    if (!lr1Builder.parse(symbols, lrError)) {
+        error("LR(1) 表达式分析失败: " + lrError);
+        exitRule("表达式", false);
+        return false;
+    }
+
+    while (pos_ < scanPos) {
         logMatch(advance());
     }
 
-    logInfo("表达式解析（占位实现，LR 分析待完成）");
-
+    logInfo("表达式解析（LR(1) 自动分析）");
     exitRule("表达式", true);
     return true;
 }
