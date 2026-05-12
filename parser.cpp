@@ -505,8 +505,21 @@ private:
 bool tokenMatchesStop(const Token& token, const vector<string>& stopTokens) {
     if (stopTokens.empty()) return false;
 
+    auto parseIndex = [](const string& text, int& out) -> bool {
+        try {
+            size_t pos = 0;
+            int value = stoi(text, &pos);
+            if (pos != text.size()) return false;
+            out = value;
+            return true;
+        } catch (...) {
+            return false;
+        }
+    };
+
     if (token.type == "KEYWORD") {
-        int idx = stoi(token.value);
+        int idx = -1;
+        if (!parseIndex(token.value, idx)) return false;
         if (idx >= 0 && idx < static_cast<int>(ctx.keywordTable.size())) {
             const string& kw = ctx.keywordTable[idx];
             return find(stopTokens.begin(), stopTokens.end(), kw) != stopTokens.end();
@@ -515,7 +528,8 @@ bool tokenMatchesStop(const Token& token, const vector<string>& stopTokens) {
     }
 
     if (token.type == "DELIMITER") {
-        int idx = stoi(token.value);
+        int idx = -1;
+        if (!parseIndex(token.value, idx)) return false;
         if (idx >= 0 && idx < static_cast<int>(ctx.delimiterTable.size())) {
             const string& d = ctx.delimiterTable[idx];
             return find(stopTokens.begin(), stopTokens.end(), d) != stopTokens.end();
@@ -527,6 +541,18 @@ bool tokenMatchesStop(const Token& token, const vector<string>& stopTokens) {
 }
 
 bool tokenToExpressionSymbol(const Token& token, string& symbol) {
+    auto parseIndex = [](const string& text, int& out) -> bool {
+        try {
+            size_t pos = 0;
+            int value = stoi(text, &pos);
+            if (pos != text.size()) return false;
+            out = value;
+            return true;
+        } catch (...) {
+            return false;
+        }
+    };
+
     if (token.type == "ID") {
         symbol = "id";
         return true;
@@ -545,7 +571,8 @@ bool tokenToExpressionSymbol(const Token& token, string& symbol) {
     }
 
     if (token.type == "KEYWORD") {
-        int idx = stoi(token.value);
+        int idx = -1;
+        if (!parseIndex(token.value, idx)) return false;
         if (idx < 0 || idx >= static_cast<int>(ctx.keywordTable.size())) return false;
         const string& kw = ctx.keywordTable[idx];
         if (kw == "true" || kw == "false") {
@@ -556,7 +583,8 @@ bool tokenToExpressionSymbol(const Token& token, string& symbol) {
     }
 
     if (token.type == "DELIMITER") {
-        int idx = stoi(token.value);
+        int idx = -1;
+        if (!parseIndex(token.value, idx)) return false;
         if (idx < 0 || idx >= static_cast<int>(ctx.delimiterTable.size())) return false;
         const string& d = ctx.delimiterTable[idx];
         static const set<string> allowed = {
@@ -1658,8 +1686,17 @@ bool Parser::parseExpression(const vector<string>& stopTokens) {
         }
 
         if (t.type == "DELIMITER") {
-            int idx = stoi(t.value);
-            if (idx >= 0 && idx < static_cast<int>(ctx.delimiterTable.size())) {
+            int idx = -1;
+            bool idxOk = false;
+            try {
+                size_t p = 0;
+                idx = stoi(t.value, &p);
+                idxOk = (p == t.value.size());
+            } catch (...) {
+                idxOk = false;
+            }
+
+            if (idxOk && idx >= 0 && idx < static_cast<int>(ctx.delimiterTable.size())) {
                 const string& d = ctx.delimiterTable[idx];
                 if (d == "(") {
                     parenDepth++;
