@@ -1628,6 +1628,7 @@ bool Parser::parseActualParameterListTail() {
 bool Parser::parseExpression(const vector<string>& stopTokens) {
     enterRule("表达式");
 
+    // 表达式文法固定不变：使用静态构建器复用 SELECT/ACTION/GOTO，避免重复建表开销。
     static ExpressionLR1Builder lr1Builder;
     if (!lr1Builder.isBuildOk()) {
         error("表达式 LR(1) 自动构建失败: " + lr1Builder.buildError());
