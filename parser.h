@@ -17,7 +17,7 @@ using namespace std;
 //   2. 输出结构化的解析日志（带缩进层次）
 //   3. 错误恢复（恐慌模式）
 //
-// 表达式部分暂用占位实现，后续替换为 LR/SLR 分析器。
+// 表达式部分使用自动构建的 LR(1) 分析器（SELECT 集与分析表自动生成）。
 //
 // 语义动作预留：
 //   每个 parseXxx() 函数返回 bool（成功/失败），函数体内用
@@ -85,6 +85,7 @@ private:
     // ==================== 错误处理 ====================
     bool   hasError_;
     string errorMsg_;
+    bool expressionAnalysisPrinted_;
 
     void error(const string& msg);  // 报告错误
     void synchronize();             // 恐慌模式恢复

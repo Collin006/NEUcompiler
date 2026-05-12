@@ -1,0 +1,592 @@
+[ENTER] <程序>
+  [MATCH] KEYWORD "program"  (line 1)
+  [MATCH] ID "TestParser"  (line 1)
+  [MATCH] DELIMITER ";"  (line 1)
+  [ENTER] <分程序>
+    [ENTER] <说明部分>
+      [ENTER] <说明语句>
+        [ENTER] <变量说明>
+          [MATCH] KEYWORD "var"  (line 3)
+          [ENTER] <变量定义表>
+            [ENTER] <变量定义>
+              [ENTER] <标识符表>
+                [MATCH] ID "a"  (line 4)
+                [ENTER] <标识符表尾>
+                  [MATCH] DELIMITER ","  (line 4)
+                  [MATCH] ID "b"  (line 4)
+                  [MATCH] DELIMITER ","  (line 4)
+                  [MATCH] ID "c"  (line 4)
+                [EXIT]  <标识符表尾> OK
+              [EXIT]  <标识符表> OK
+              [MATCH] DELIMITER ":"  (line 4)
+              [ENTER] <类型>
+                [MATCH] KEYWORD "integer"  (line 4)
+              [EXIT]  <类型> OK
+            [EXIT]  <变量定义> OK
+            [MATCH] DELIMITER ";"  (line 4)
+            [ENTER] <变量定义>
+              [ENTER] <标识符表>
+                [MATCH] ID "x"  (line 5)
+                [ENTER] <标识符表尾>
+                  [MATCH] DELIMITER ","  (line 5)
+                  [MATCH] ID "y"  (line 5)
+                [EXIT]  <标识符表尾> OK
+              [EXIT]  <标识符表> OK
+              [MATCH] DELIMITER ":"  (line 5)
+              [ENTER] <类型>
+                [MATCH] KEYWORD "real"  (line 5)
+              [EXIT]  <类型> OK
+            [EXIT]  <变量定义> OK
+            [MATCH] DELIMITER ";"  (line 5)
+            [ENTER] <变量定义>
+              [ENTER] <标识符表>
+                [MATCH] ID "flag"  (line 6)
+                [ENTER] <标识符表尾>
+                [EXIT]  <标识符表尾> OK
+              [EXIT]  <标识符表> OK
+              [MATCH] DELIMITER ":"  (line 6)
+              [ENTER] <类型>
+                [MATCH] KEYWORD "boolean"  (line 6)
+              [EXIT]  <类型> OK
+            [EXIT]  <变量定义> OK
+            [MATCH] DELIMITER ";"  (line 6)
+            [ENTER] <变量定义>
+              [ENTER] <标识符表>
+                [MATCH] ID "msg"  (line 7)
+                [ENTER] <标识符表尾>
+                [EXIT]  <标识符表尾> OK
+              [EXIT]  <标识符表> OK
+              [MATCH] DELIMITER ":"  (line 7)
+              [ENTER] <类型>
+                [MATCH] KEYWORD "string"  (line 7)
+              [EXIT]  <类型> OK
+            [EXIT]  <变量定义> OK
+            [MATCH] DELIMITER ";"  (line 7)
+          [EXIT]  <变量定义表> OK
+        [EXIT]  <变量说明> OK
+      [EXIT]  <说明语句> OK
+      [ENTER] <说明语句>
+        [ENTER] <函数说明>
+          [MATCH] KEYWORD "function"  (line 10)
+          [MATCH] ID "max"  (line 10)
+          [ENTER] <形式参数>
+            [MATCH] DELIMITER "("  (line 10)
+            [ENTER] <参数表>
+              [ENTER] <参数定义>
+                [ENTER] <值参数>
+                  [ENTER] <标识符表>
+                    [MATCH] ID "m"  (line 10)
+                    [ENTER] <标识符表尾>
+                    [EXIT]  <标识符表尾> OK
+                  [EXIT]  <标识符表> OK
+                  [MATCH] DELIMITER ":"  (line 10)
+                  [ENTER] <类型>
+                    [MATCH] KEYWORD "integer"  (line 10)
+                  [EXIT]  <类型> OK
+                [EXIT]  <值参数> OK
+              [EXIT]  <参数定义> OK
+              [ENTER] <参数表尾>
+                [MATCH] DELIMITER ";"  (line 10)
+                [ENTER] <参数定义>
+                  [ENTER] <值参数>
+                    [ENTER] <标识符表>
+                      [MATCH] ID "n"  (line 10)
+                      [ENTER] <标识符表尾>
+                      [EXIT]  <标识符表尾> OK
+                    [EXIT]  <标识符表> OK
+                    [MATCH] DELIMITER ":"  (line 10)
+                    [ENTER] <类型>
+                      [MATCH] KEYWORD "integer"  (line 10)
+                    [EXIT]  <类型> OK
+                  [EXIT]  <值参数> OK
+                [EXIT]  <参数定义> OK
+              [EXIT]  <参数表尾> OK
+            [EXIT]  <参数表> OK
+            [MATCH] DELIMITER ")"  (line 10)
+          [EXIT]  <形式参数> OK
+          [MATCH] DELIMITER ":"  (line 10)
+          [ENTER] <类型>
+            [MATCH] KEYWORD "integer"  (line 10)
+          [EXIT]  <类型> OK
+          [MATCH] DELIMITER ";"  (line 10)
+          [ENTER] <分程序>
+            [ENTER] <说明部分>
+            [EXIT]  <说明部分> OK
+            [ENTER] <复合语句>
+              [MATCH] KEYWORD "begin"  (line 11)
+              [ENTER] <语句表>
+                [ENTER] <语句>
+                  [ENTER] <if语句>
+                    [MATCH] KEYWORD "if"  (line 12)
+                    [ENTER] <表达式>
+                      [MATCH] ID "m"  (line 12)
+                      [MATCH] DELIMITER ">"  (line 12)
+                      [MATCH] ID "n"  (line 12)
+                      [INFO]  表达式解析（占位实现，LR 分析待完成）
+                    [EXIT]  <表达式> OK
+                    [MATCH] KEYWORD "then"  (line 12)
+                    [ENTER] <语句>
+                      [ENTER] <赋值或调用语句>
+                        [MATCH] ID "max"  (line 13)
+                        [MATCH] DELIMITER ":="  (line 13)
+                        [ENTER] <表达式>
+                          [MATCH] ID "m"  (line 13)
+                          [INFO]  表达式解析（占位实现，LR 分析待完成）
+                        [EXIT]  <表达式> OK
+                      [EXIT]  <赋值或调用语句> OK
+                    [EXIT]  <语句> OK
+                  [EXIT]  <if语句> OK
+                [EXIT]  <语句> OK
+                [MATCH] DELIMITER ";"  (line 13)
+                [ENTER] <语句>
+                  [ENTER] <if语句>
+                    [MATCH] KEYWORD "if"  (line 14)
+                    [ENTER] <表达式>
+                      [MATCH] ID "m"  (line 14)
+                      [MATCH] DELIMITER "<="  (line 14)
+                      [MATCH] ID "n"  (line 14)
+                      [INFO]  表达式解析（占位实现，LR 分析待完成）
+                    [EXIT]  <表达式> OK
+                    [MATCH] KEYWORD "then"  (line 14)
+                    [ENTER] <语句>
+                      [ENTER] <赋值或调用语句>
+                        [MATCH] ID "max"  (line 15)
+                        [MATCH] DELIMITER ":="  (line 15)
+                        [ENTER] <表达式>
+                          [MATCH] ID "n"  (line 15)
+                          [INFO]  表达式解析（占位实现，LR 分析待完成）
+                        [EXIT]  <表达式> OK
+                      [EXIT]  <赋值或调用语句> OK
+                    [EXIT]  <语句> OK
+                  [EXIT]  <if语句> OK
+                [EXIT]  <语句> OK
+                [MATCH] DELIMITER ";"  (line 15)
+              [EXIT]  <语句表> OK
+              [MATCH] KEYWORD "end"  (line 16)
+            [EXIT]  <复合语句> OK
+          [EXIT]  <分程序> OK
+          [MATCH] DELIMITER ";"  (line 16)
+        [EXIT]  <函数说明> OK
+      [EXIT]  <说明语句> OK
+      [ENTER] <说明语句>
+        [ENTER] <过程说明>
+          [MATCH] KEYWORD "procedure"  (line 19)
+          [MATCH] ID "swap"  (line 19)
+          [ENTER] <形式参数>
+            [MATCH] DELIMITER "("  (line 19)
+            [ENTER] <参数表>
+              [ENTER] <参数定义>
+                [ENTER] <变量参数>
+                  [MATCH] KEYWORD "var"  (line 19)
+                  [ENTER] <标识符表>
+                    [MATCH] ID "u"  (line 19)
+                    [ENTER] <标识符表尾>
+                    [EXIT]  <标识符表尾> OK
+                  [EXIT]  <标识符表> OK
+                  [MATCH] DELIMITER ":"  (line 19)
+                  [ENTER] <类型>
+                    [MATCH] KEYWORD "real"  (line 19)
+                  [EXIT]  <类型> OK
+                [EXIT]  <变量参数> OK
+              [EXIT]  <参数定义> OK
+              [ENTER] <参数表尾>
+                [MATCH] DELIMITER ";"  (line 19)
+                [ENTER] <参数定义>
+                  [ENTER] <变量参数>
+                    [MATCH] KEYWORD "var"  (line 19)
+                    [ENTER] <标识符表>
+                      [MATCH] ID "v"  (line 19)
+                      [ENTER] <标识符表尾>
+                      [EXIT]  <标识符表尾> OK
+                    [EXIT]  <标识符表> OK
+                    [MATCH] DELIMITER ":"  (line 19)
+                    [ENTER] <类型>
+                      [MATCH] KEYWORD "real"  (line 19)
+                    [EXIT]  <类型> OK
+                  [EXIT]  <变量参数> OK
+                [EXIT]  <参数定义> OK
+              [EXIT]  <参数表尾> OK
+            [EXIT]  <参数表> OK
+            [MATCH] DELIMITER ")"  (line 19)
+          [EXIT]  <形式参数> OK
+          [MATCH] DELIMITER ";"  (line 19)
+          [ENTER] <分程序>
+            [ENTER] <说明部分>
+              [ENTER] <说明语句>
+                [ENTER] <变量说明>
+                  [MATCH] KEYWORD "var"  (line 20)
+                  [ENTER] <变量定义表>
+                    [ENTER] <变量定义>
+                      [ENTER] <标识符表>
+                        [MATCH] ID "temp"  (line 21)
+                        [ENTER] <标识符表尾>
+                        [EXIT]  <标识符表尾> OK
+                      [EXIT]  <标识符表> OK
+                      [MATCH] DELIMITER ":"  (line 21)
+                      [ENTER] <类型>
+                        [MATCH] KEYWORD "real"  (line 21)
+                      [EXIT]  <类型> OK
+                    [EXIT]  <变量定义> OK
+                    [MATCH] DELIMITER ";"  (line 21)
+                  [EXIT]  <变量定义表> OK
+                [EXIT]  <变量说明> OK
+              [EXIT]  <说明语句> OK
+            [EXIT]  <说明部分> OK
+            [ENTER] <复合语句>
+              [MATCH] KEYWORD "begin"  (line 22)
+              [ENTER] <语句表>
+                [ENTER] <语句>
+                  [ENTER] <赋值或调用语句>
+                    [MATCH] ID "temp"  (line 23)
+                    [MATCH] DELIMITER ":="  (line 23)
+                    [ENTER] <表达式>
+                      [MATCH] ID "u"  (line 23)
+                      [INFO]  表达式解析（占位实现，LR 分析待完成）
+                    [EXIT]  <表达式> OK
+                  [EXIT]  <赋值或调用语句> OK
+                [EXIT]  <语句> OK
+                [MATCH] DELIMITER ";"  (line 23)
+                [ENTER] <语句>
+                  [ENTER] <赋值或调用语句>
+                    [MATCH] ID "u"  (line 24)
+                    [MATCH] DELIMITER ":="  (line 24)
+                    [ENTER] <表达式>
+                      [MATCH] ID "v"  (line 24)
+                      [INFO]  表达式解析（占位实现，LR 分析待完成）
+                    [EXIT]  <表达式> OK
+                  [EXIT]  <赋值或调用语句> OK
+                [EXIT]  <语句> OK
+                [MATCH] DELIMITER ";"  (line 24)
+                [ENTER] <语句>
+                  [ENTER] <赋值或调用语句>
+                    [MATCH] ID "v"  (line 25)
+                    [MATCH] DELIMITER ":="  (line 25)
+                    [ENTER] <表达式>
+                      [MATCH] ID "temp"  (line 25)
+                      [INFO]  表达式解析（占位实现，LR 分析待完成）
+                    [EXIT]  <表达式> OK
+                  [EXIT]  <赋值或调用语句> OK
+                [EXIT]  <语句> OK
+                [MATCH] DELIMITER ";"  (line 25)
+              [EXIT]  <语句表> OK
+              [MATCH] KEYWORD "end"  (line 26)
+            [EXIT]  <复合语句> OK
+          [EXIT]  <分程序> OK
+          [MATCH] DELIMITER ";"  (line 26)
+        [EXIT]  <过程说明> OK
+      [EXIT]  <说明语句> OK
+      [ENTER] <说明语句>
+        [ENTER] <过程说明>
+          [MATCH] KEYWORD "procedure"  (line 29)
+          [MATCH] ID "doNothing"  (line 29)
+          [ENTER] <形式参数>
+          [EXIT]  <形式参数> OK
+          [MATCH] DELIMITER ";"  (line 29)
+          [ENTER] <分程序>
+            [ENTER] <说明部分>
+            [EXIT]  <说明部分> OK
+            [ENTER] <复合语句>
+              [MATCH] KEYWORD "begin"  (line 30)
+              [ENTER] <语句表>
+              [EXIT]  <语句表> OK
+              [MATCH] KEYWORD "end"  (line 31)
+            [EXIT]  <复合语句> OK
+          [EXIT]  <分程序> OK
+          [MATCH] DELIMITER ";"  (line 31)
+        [EXIT]  <过程说明> OK
+      [EXIT]  <说明语句> OK
+    [EXIT]  <说明部分> OK
+    [ENTER] <复合语句>
+      [MATCH] KEYWORD "begin"  (line 33)
+      [ENTER] <语句表>
+        [ENTER] <语句>
+          [ENTER] <赋值或调用语句>
+            [MATCH] ID "a"  (line 35)
+            [MATCH] DELIMITER ":="  (line 35)
+            [ENTER] <表达式>
+              [MATCH] CONSL1 "10"  (line 35)
+              [INFO]  表达式解析（占位实现，LR 分析待完成）
+            [EXIT]  <表达式> OK
+          [EXIT]  <赋值或调用语句> OK
+        [EXIT]  <语句> OK
+        [MATCH] DELIMITER ";"  (line 35)
+        [ENTER] <语句>
+          [ENTER] <赋值或调用语句>
+            [MATCH] ID "b"  (line 36)
+            [MATCH] DELIMITER ":="  (line 36)
+            [ENTER] <表达式>
+              [MATCH] CONSL1 "20"  (line 36)
+              [INFO]  表达式解析（占位实现，LR 分析待完成）
+            [EXIT]  <表达式> OK
+          [EXIT]  <赋值或调用语句> OK
+        [EXIT]  <语句> OK
+        [MATCH] DELIMITER ";"  (line 36)
+        [ENTER] <语句>
+          [ENTER] <赋值或调用语句>
+            [MATCH] ID "c"  (line 37)
+            [MATCH] DELIMITER ":="  (line 37)
+            [ENTER] <表达式>
+              [MATCH] ID "a"  (line 37)
+              [MATCH] DELIMITER "+"  (line 37)
+              [MATCH] ID "b"  (line 37)
+              [INFO]  表达式解析（占位实现，LR 分析待完成）
+            [EXIT]  <表达式> OK
+          [EXIT]  <赋值或调用语句> OK
+        [EXIT]  <语句> OK
+        [MATCH] DELIMITER ";"  (line 37)
+        [ENTER] <语句>
+          [ENTER] <赋值或调用语句>
+            [MATCH] ID "x"  (line 38)
+            [MATCH] DELIMITER ":="  (line 38)
+            [ENTER] <表达式>
+              [MATCH] CONSL2 "3.140000"  (line 38)
+              [INFO]  表达式解析（占位实现，LR 分析待完成）
+            [EXIT]  <表达式> OK
+          [EXIT]  <赋值或调用语句> OK
+        [EXIT]  <语句> OK
+        [MATCH] DELIMITER ";"  (line 38)
+        [ENTER] <语句>
+          [ENTER] <赋值或调用语句>
+            [MATCH] ID "y"  (line 39)
+            [MATCH] DELIMITER ":="  (line 39)
+            [ENTER] <表达式>
+              [MATCH] CONSL2 "2.710000"  (line 39)
+              [INFO]  表达式解析（占位实现，LR 分析待完成）
+            [EXIT]  <表达式> OK
+          [EXIT]  <赋值或调用语句> OK
+        [EXIT]  <语句> OK
+        [MATCH] DELIMITER ";"  (line 39)
+        [ENTER] <语句>
+          [ENTER] <if语句>
+            [MATCH] KEYWORD "if"  (line 42)
+            [ENTER] <表达式>
+              [MATCH] ID "flag"  (line 42)
+              [INFO]  表达式解析（占位实现，LR 分析待完成）
+            [EXIT]  <表达式> OK
+            [MATCH] KEYWORD "then"  (line 42)
+            [ENTER] <语句>
+              [ENTER] <赋值或调用语句>
+                [MATCH] ID "a"  (line 43)
+                [MATCH] DELIMITER ":="  (line 43)
+                [ENTER] <表达式>
+                  [MATCH] CONSL1 "1"  (line 43)
+                  [INFO]  表达式解析（占位实现，LR 分析待完成）
+                [EXIT]  <表达式> OK
+              [EXIT]  <赋值或调用语句> OK
+            [EXIT]  <语句> OK
+          [EXIT]  <if语句> OK
+        [EXIT]  <语句> OK
+        [MATCH] DELIMITER ";"  (line 43)
+        [ENTER] <语句>
+          [ENTER] <if语句>
+            [MATCH] KEYWORD "if"  (line 46)
+            [ENTER] <表达式>
+              [MATCH] ID "a"  (line 46)
+              [MATCH] DELIMITER ">"  (line 46)
+              [MATCH] ID "b"  (line 46)
+              [INFO]  表达式解析（占位实现，LR 分析待完成）
+            [EXIT]  <表达式> OK
+            [MATCH] KEYWORD "then"  (line 46)
+            [ENTER] <语句>
+              [ENTER] <赋值或调用语句>
+                [MATCH] ID "c"  (line 47)
+                [MATCH] DELIMITER ":="  (line 47)
+                [ENTER] <表达式>
+                  [MATCH] ID "a"  (line 47)
+                  [INFO]  表达式解析（占位实现，LR 分析待完成）
+                [EXIT]  <表达式> OK
+              [EXIT]  <赋值或调用语句> OK
+            [EXIT]  <语句> OK
+          [EXIT]  <if语句> OK
+        [EXIT]  <语句> OK
+        [MATCH] DELIMITER ";"  (line 47)
+        [ENTER] <语句>
+          [ENTER] <if语句>
+            [MATCH] KEYWORD "if"  (line 48)
+            [ENTER] <表达式>
+              [MATCH] ID "a"  (line 48)
+              [MATCH] DELIMITER "<="  (line 48)
+              [MATCH] ID "b"  (line 48)
+              [INFO]  表达式解析（占位实现，LR 分析待完成）
+            [EXIT]  <表达式> OK
+            [MATCH] KEYWORD "then"  (line 48)
+            [ENTER] <语句>
+              [ENTER] <赋值或调用语句>
+                [MATCH] ID "c"  (line 49)
+                [MATCH] DELIMITER ":="  (line 49)
+                [ENTER] <表达式>
+                  [MATCH] ID "b"  (line 49)
+                  [INFO]  表达式解析（占位实现，LR 分析待完成）
+                [EXIT]  <表达式> OK
+              [EXIT]  <赋值或调用语句> OK
+            [EXIT]  <语句> OK
+          [EXIT]  <if语句> OK
+        [EXIT]  <语句> OK
+        [MATCH] DELIMITER ";"  (line 49)
+        [ENTER] <语句>
+          [ENTER] <if语句>
+            [MATCH] KEYWORD "if"  (line 52)
+            [ENTER] <表达式>
+              [MATCH] ID "flag"  (line 52)
+              [INFO]  表达式解析（占位实现，LR 分析待完成）
+            [EXIT]  <表达式> OK
+            [MATCH] KEYWORD "then"  (line 52)
+            [ENTER] <语句>
+              [ENTER] <if语句>
+                [MATCH] KEYWORD "if"  (line 53)
+                [ENTER] <表达式>
+                  [MATCH] ID "a"  (line 53)
+                  [MATCH] DELIMITER ">"  (line 53)
+                  [MATCH] ID "b"  (line 53)
+                  [INFO]  表达式解析（占位实现，LR 分析待完成）
+                [EXIT]  <表达式> OK
+                [MATCH] KEYWORD "then"  (line 53)
+                [ENTER] <语句>
+                  [ENTER] <赋值或调用语句>
+                    [MATCH] ID "c"  (line 54)
+                    [MATCH] DELIMITER ":="  (line 54)
+                    [ENTER] <表达式>
+                      [MATCH] CONSL1 "100"  (line 54)
+                      [INFO]  表达式解析（占位实现，LR 分析待完成）
+                    [EXIT]  <表达式> OK
+                  [EXIT]  <赋值或调用语句> OK
+                [EXIT]  <语句> OK
+              [EXIT]  <if语句> OK
+            [EXIT]  <语句> OK
+          [EXIT]  <if语句> OK
+        [EXIT]  <语句> OK
+        [MATCH] DELIMITER ";"  (line 54)
+        [ENTER] <语句>
+          [ENTER] <if语句>
+            [MATCH] KEYWORD "if"  (line 55)
+            [ENTER] <表达式>
+              [MATCH] ID "flag"  (line 55)
+              [INFO]  表达式解析（占位实现，LR 分析待完成）
+            [EXIT]  <表达式> OK
+            [MATCH] KEYWORD "then"  (line 55)
+            [ENTER] <语句>
+              [ENTER] <if语句>
+                [MATCH] KEYWORD "if"  (line 56)
+                [ENTER] <表达式>
+                  [MATCH] ID "a"  (line 56)
+                  [MATCH] DELIMITER ">"  (line 56)
+                  [MATCH] ID "b"  (line 56)
+                  [INFO]  表达式解析（占位实现，LR 分析待完成）
+                [EXIT]  <表达式> OK
+                [MATCH] KEYWORD "then"  (line 56)
+                [ENTER] <语句>
+                  [ENTER] <赋值或调用语句>
+                    [MATCH] ID "c"  (line 57)
+                    [MATCH] DELIMITER ":="  (line 57)
+                    [ENTER] <表达式>
+                      [MATCH] CONSL1 "200"  (line 57)
+                      [INFO]  表达式解析（占位实现，LR 分析待完成）
+                    [EXIT]  <表达式> OK
+                  [EXIT]  <赋值或调用语句> OK
+                [EXIT]  <语句> OK
+              [EXIT]  <if语句> OK
+            [EXIT]  <语句> OK
+          [EXIT]  <if语句> OK
+        [EXIT]  <语句> OK
+        [MATCH] DELIMITER ";"  (line 57)
+        [ENTER] <语句>
+          [ENTER] <while语句>
+            [MATCH] KEYWORD "while"  (line 60)
+            [ENTER] <表达式>
+              [MATCH] ID "flag"  (line 60)
+              [INFO]  表达式解析（占位实现，LR 分析待完成）
+            [EXIT]  <表达式> OK
+            [MATCH] KEYWORD "do"  (line 60)
+            [ENTER] <语句>
+              [ENTER] <复合语句>
+                [MATCH] KEYWORD "begin"  (line 61)
+                [ENTER] <语句表>
+                  [ENTER] <语句>
+                    [ENTER] <赋值或调用语句>
+                      [MATCH] ID "a"  (line 62)
+                      [MATCH] DELIMITER ":="  (line 62)
+                      [ENTER] <表达式>
+                        [MATCH] ID "a"  (line 62)
+                        [MATCH] DELIMITER "+"  (line 62)
+                        [MATCH] CONSL1 "1"  (line 62)
+                        [INFO]  表达式解析（占位实现，LR 分析待完成）
+                      [EXIT]  <表达式> OK
+                    [EXIT]  <赋值或调用语句> OK
+                  [EXIT]  <语句> OK
+                  [MATCH] DELIMITER ";"  (line 62)
+                  [ENTER] <语句>
+                    [ENTER] <赋值或调用语句>
+                      [MATCH] ID "flag"  (line 63)
+                      [MATCH] DELIMITER ":="  (line 63)
+                      [ENTER] <表达式>
+                        [MATCH] KEYWORD "false"  (line 63)
+                        [INFO]  表达式解析（占位实现，LR 分析待完成）
+                      [EXIT]  <表达式> OK
+                    [EXIT]  <赋值或调用语句> OK
+                  [EXIT]  <语句> OK
+                  [MATCH] DELIMITER ";"  (line 63)
+                [EXIT]  <语句表> OK
+                [MATCH] KEYWORD "end"  (line 64)
+              [EXIT]  <复合语句> OK
+            [EXIT]  <语句> OK
+          [EXIT]  <while语句> OK
+        [EXIT]  <语句> OK
+        [MATCH] DELIMITER ";"  (line 64)
+        [ENTER] <语句>
+          [ENTER] <赋值或调用语句>
+            [MATCH] ID "swap"  (line 67)
+            [ENTER] <调用后缀>
+              [MATCH] DELIMITER "("  (line 67)
+              [ENTER] <实参表>
+                [ENTER] <表达式>
+                  [MATCH] ID "x"  (line 67)
+                  [INFO]  表达式解析（占位实现，LR 分析待完成）
+                [EXIT]  <表达式> OK
+                [ENTER] <实参表尾>
+                  [MATCH] DELIMITER ","  (line 67)
+                  [ENTER] <表达式>
+                    [MATCH] ID "y"  (line 67)
+                    [INFO]  表达式解析（占位实现，LR 分析待完成）
+                  [EXIT]  <表达式> OK
+                [EXIT]  <实参表尾> OK
+              [EXIT]  <实参表> OK
+              [MATCH] DELIMITER ")"  (line 67)
+            [EXIT]  <调用后缀> OK
+          [EXIT]  <赋值或调用语句> OK
+        [EXIT]  <语句> OK
+        [MATCH] DELIMITER ";"  (line 67)
+        [ENTER] <语句>
+          [ENTER] <赋值或调用语句>
+            [MATCH] ID "doNothing"  (line 70)
+            [ENTER] <调用后缀>
+            [EXIT]  <调用后缀> OK
+          [EXIT]  <赋值或调用语句> OK
+        [EXIT]  <语句> OK
+        [MATCH] DELIMITER ";"  (line 70)
+        [ENTER] <语句>
+          [ENTER] <复合语句>
+            [MATCH] KEYWORD "begin"  (line 73)
+            [ENTER] <语句表>
+              [ENTER] <语句>
+                [ENTER] <赋值或调用语句>
+                  [MATCH] ID "a"  (line 74)
+                  [MATCH] DELIMITER ":="  (line 74)
+                  [ENTER] <表达式>
+                    [MATCH] CONSL1 "0"  (line 74)
+                    [INFO]  表达式解析（占位实现，LR 分析待完成）
+                  [EXIT]  <表达式> OK
+                [EXIT]  <赋值或调用语句> OK
+              [EXIT]  <语句> OK
+              [MATCH] DELIMITER ";"  (line 74)
+            [EXIT]  <语句表> OK
+            [MATCH] KEYWORD "end"  (line 75)
+          [EXIT]  <复合语句> OK
+        [EXIT]  <语句> OK
+        [MATCH] DELIMITER ";"  (line 75)
+      [EXIT]  <语句表> OK
+      [MATCH] KEYWORD "end"  (line 76)
+    [EXIT]  <复合语句> OK
+  [EXIT]  <分程序> OK
+  [MATCH] DELIMITER "."  (line 76)
+[EXIT]  <程序> OK
+[INFO]  ===== 语法分析通过 =====
