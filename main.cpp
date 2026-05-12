@@ -13,6 +13,7 @@
 #endif
 #include <windows.h>
 #include <io.h>
+#include <fcntl.h>
 #else
 #include <unistd.h>
 #endif
@@ -70,7 +71,8 @@ vector<string> splitLines(const string& text) {
 
 int main(int argc, char* argv[]) {
 
-    // 控制台强制 UTF-8 输出（解决中文乱码）
+    // 控制台强制 UTF-8 编码（SetConsoleOutputCP 设置控制台代码页）
+    // 注意：不要使用 _setmode + _O_U8TEXT，会导致 buffer_size % 2 == 0 断言失败
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);

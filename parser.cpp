@@ -6,6 +6,7 @@
 #include <map>
 #include <queue>
 #include <unordered_set>
+#include <functional>
 
 namespace {
 
@@ -39,6 +40,39 @@ struct LRAction {
     int value = -1; // Shift: state, Reduce: productionIndex
 };
 
+// ============================================================
+// 语义值 —— 表达式分析过程中传递的中间结果
+// Shift 时记录终结符的原文和行号
+// Reduce 时由回调生成非终结符的语义值
+// 语义分析/代码生成阶段：替换 ReduceCallback 为四元式生成逻辑即可
+// ============================================================
+struct SemanticValue {
+    string symbol;   // 文法符号名（终结符如 "id"/"+", 非终结符如 "Expr"）
+    string text;     // 终结符的原文（标识符名/常量值），非终结符由规约生成
+    int    line;     // 所在行号
+};
+
+// 规约回调：产生式编号、LHS、RHS 值列表 → 规约结果
+// 传入 nullptr 时使用默认行为（仅透传符号名，不做语义分析）
+using ReduceCallback = std::function<SemanticValue(
+    int prodIndex, const std::string& lhs, const std::vector<SemanticValue>& rhs)>;
+
+// 文法符号名 → 中文翻译（用于日志输出）
+string symbolToChinese(const string& sym) {
+    static const map<string, string> trans = {
+        {"Expr", "表达式"}, {"BoolExpr", "布尔表达式"}, {"BoolTerm", "布尔项"},
+        {"BoolFactor", "布尔因子"}, {"RelExpr", "关系表达式"}, {"RelOp", "关系运算符"},
+        {"ArithExpr", "算术表达式"}, {"Term", "项"}, {"Factor", "因子"},
+        {"CallSuffix", "调用后缀"}, {"ActualParamList", "实参表"},
+        {"ActualParamListTail", "实参表尾"},
+        {"id", "标识符"}, {"int", "整数"}, {"real", "实数"},
+        {"string_lit", "字符串"}, {"true", "true"}, {"false", "false"},
+        {"ε", "ε"},
+    };
+    auto it = trans.find(sym);
+    return it != trans.end() ? it->second : sym;
+}
+
 class ExpressionLR1Builder {
 public:
     ExpressionLR1Builder() {
@@ -52,36 +86,102 @@ public:
     bool isBuildOk() const { return buildOk_; }
     string buildError() const { return buildError_; }
 
+    // 表达式语法分析（纯语法校验，保留旧接口兼容）
     bool parse(const vector<string>& inputSymbols, string& errorMsg) const {
+        vector<SemanticValue> dummyValues;
+        dummyValues.reserve(inputSymbols.size());
+        for (const string& sym : inputSymbols) {
+            SemanticValue v;
+            v.symbol = sym;
+            v.line = 0;
+            dummyValues.push_back(v);
+        }
+        return parse(dummyValues, errorMsg, nullptr);
+    }
+
+    // 表达式语法分析 + 语义值传递
+    // onReduce: 每次规约时调用，传入产生式编号、LHS、RHS 值列表，返回规约结果
+    //           传 nullptr 则使用默认行为（仅透传符号名）
+    // lrLog:    非空时输出每次 Shift/Reduce/Accept 的详细日志
+    bool parse(const vector<SemanticValue>& inputValues, string& errorMsg,
+               const ReduceCallback& onReduce, ostream* lrLog = nullptr) const {
         vector<int> stateStack;
+        vector<SemanticValue> valueStack;  // 语义值栈，与状态栈同步
         stateStack.push_back(0);
+        // 初始压入空值占位（状态栈从 0 开始，值栈对齐）
+        SemanticValue initVal;
+        initVal.symbol = "$";
+        valueStack.push_back(initVal);
         size_t ip = 0;
+
+        // 默认回调：仅记录符号名，不做语义分析
+        auto defaultReduce = [](int /*prodIndex*/, const string& lhs,
+                                const vector<SemanticValue>& /*rhs*/) -> SemanticValue {
+            SemanticValue result;
+            result.symbol = lhs;
+            return result;
+        };
+
+        const ReduceCallback& reduce = onReduce ? onReduce : defaultReduce;
 
         while (true) {
             int state = stateStack.back();
-            string lookahead = (ip < inputSymbols.size()) ? inputSymbols[ip] : "$";
+            string lookahead = (ip < inputValues.size()) ? inputValues[ip].symbol : "$";
             LRAction action = getAction(state, lookahead);
 
             if (action.type == LRAction::Shift) {
                 stateStack.push_back(action.value);
+                if (lrLog) {
+                    const SemanticValue& val = inputValues[ip];
+                    *lrLog << "  [LR] Shift  " << symbolToChinese(val.symbol);
+                    if (!val.text.empty() && val.text != val.symbol)
+                        *lrLog << " (\"" << val.text << "\")";
+                    *lrLog << "  → state " << action.value << "\n";
+                }
+                valueStack.push_back(inputValues[ip]);  // 语义值入栈
                 ip++;
                 continue;
             }
 
             if (action.type == LRAction::Reduce) {
                 const Production& p = productions_[action.value];
+
+                // 从语义值栈弹出 |RHS| 个值
+                vector<SemanticValue> rhsValues;
+                rhsValues.reserve(p.rhs.size());
                 for (size_t i = 0; i < p.rhs.size(); ++i) {
-                    if (stateStack.empty()) {
+                    if (stateStack.empty() || valueStack.size() <= 1) {
                         errorMsg = "LR 栈下溢（规约阶段）";
                         return false;
                     }
                     stateStack.pop_back();
+                    rhsValues.push_back(valueStack.back());
+                    valueStack.pop_back();
                 }
+                // RHS 是倒序弹出的，翻转恢复原始顺序
+                reverse(rhsValues.begin(), rhsValues.end());
 
                 if (stateStack.empty()) {
                     errorMsg = "LR 栈为空，无法 GOTO";
                     return false;
                 }
+
+                /* SEMANTIC: 规约回调 —— 在此生成四元式
+                   调用 reduce(prodIndex, p.lhs, rhsValues)
+                   返回的 SemanticValue 压入值栈
+                   例如：P17 (ArithExpr → ArithExpr + Term)
+                     rhsValues = [ArithExpr(a), +, Term(b)]
+                     reduce 应返回 ArithExpr(t1)，并生成四元式 (+, a, b, t1)
+                */
+                if (lrLog) {
+                    *lrLog << "  [LR] Reduce P" << action.value << ": "
+                           << symbolToChinese(p.lhs) << " ←";
+                    for (const string& sym : p.rhs)
+                        *lrLog << " " << symbolToChinese(sym);
+                    *lrLog << "\n";
+                }
+                SemanticValue result = reduce(action.value, p.lhs, rhsValues);
+                valueStack.push_back(result);
 
                 int fromState = stateStack.back();
                 auto gIt = gotoTable_.find({fromState, p.lhs});
@@ -94,10 +194,12 @@ public:
             }
 
             if (action.type == LRAction::Accept) {
-                if (ip != inputSymbols.size()) {
+                if (ip != inputValues.size()) {
                     errorMsg = "表达式未完全消耗";
                     return false;
                 }
+                if (lrLog) *lrLog << "  [LR] Accept  (表达式分析成功)\n";
+                // 顶层规约结果的语义值在 valueStack.top()
                 return true;
             }
 
@@ -545,7 +647,9 @@ bool tokenMatchesStop(const Token& token, const vector<string>& stopTokens) {
     return false;
 }
 
-bool tokenToExpressionSymbol(const Token& token, string& symbol) {
+// 将 Token 转换为表达式分析器的语义值（符号名 + 原文 + 行号）
+// 返回 false 表示该 token 不能出现在表达式中
+bool tokenToExpressionValue(const Token& token, SemanticValue& val) {
     auto parseIndex = [](const string& text, int& out) -> bool {
         try {
             size_t pos = 0;
@@ -558,20 +662,38 @@ bool tokenToExpressionSymbol(const Token& token, string& symbol) {
         }
     };
 
+    val.line = token.line;
+
     if (token.type == "ID") {
-        symbol = "id";
+        val.symbol = "id";
+        int idx = -1;
+        if (parseIndex(token.value, idx) && idx >= 0 && idx < static_cast<int>(ctx.synbl.size()))
+            val.text = ctx.synbl[idx].name;
+        else
+            val.text = "?";
         return true;
     }
     if (token.type == "CONSL1") {
-        symbol = "int";
+        val.symbol = "int";
+        int idx = -1;
+        if (parseIndex(token.value, idx) && idx >= 0 && idx < static_cast<int>(ctx.consl1.size()))
+            val.text = to_string(ctx.consl1[idx]);
+        else
+            val.text = "?";
         return true;
     }
     if (token.type == "CONSL2") {
-        symbol = "real";
+        val.symbol = "real";
+        int idx = -1;
+        if (parseIndex(token.value, idx) && idx >= 0 && idx < static_cast<int>(ctx.consl2.size()))
+            val.text = to_string(ctx.consl2[idx]);
+        else
+            val.text = "?";
         return true;
     }
     if (token.type == "STRING") {
-        symbol = "string_lit";
+        val.symbol = "string_lit";
+        val.text = token.value;  // 原文（不含两端引号）
         return true;
     }
 
@@ -581,7 +703,8 @@ bool tokenToExpressionSymbol(const Token& token, string& symbol) {
         if (idx < 0 || idx >= static_cast<int>(ctx.keywordTable.size())) return false;
         const string& kw = ctx.keywordTable[idx];
         if (kw == "true" || kw == "false") {
-            symbol = kw;
+            val.symbol = kw;
+            val.text = kw;
             return true;
         }
         return false;
@@ -596,12 +719,21 @@ bool tokenToExpressionSymbol(const Token& token, string& symbol) {
             "(", ")", ",", "+", "-", "*", "/", ">", ">=", "<", "<=", "=", "<>", "&&", "||", "!"
         };
         if (allowed.count(d)) {
-            symbol = d;
+            val.symbol = d;
+            val.text = d;
             return true;
         }
     }
 
     return false;
+}
+
+// 旧接口保留兼容（内部调用 tokenToExpressionValue）
+bool tokenToExpressionSymbol(const Token& token, string& symbol) {
+    SemanticValue val;
+    if (!tokenToExpressionValue(token, val)) return false;
+    symbol = val.symbol;
+    return true;
 }
 
 } // namespace
@@ -1726,22 +1858,25 @@ bool Parser::parseExpression(const vector<string>& stopTokens) {
         return false;
     }
 
-    vector<string> symbols;
-    symbols.reserve(scanPos - beginPos);
+    // 收集表达式的语义值序列（每个 token 映射为语义值，保留原文和行号）
+    vector<SemanticValue> exprValues;
+    exprValues.reserve(scanPos - beginPos);
 
     for (size_t i = beginPos; i < scanPos; ++i) {
         const Token& t = tokens_[i];
-        string sym;
-        if (!tokenToExpressionSymbol(t, sym)) {
+        SemanticValue val;
+        if (!tokenToExpressionValue(t, val)) {
             error("表达式中出现非法记号: " + tokenToString(t));
             exitRule("表达式", false);
             return false;
         }
-        symbols.push_back(sym);
+        exprValues.push_back(val);
     }
 
     string lrError;
-    if (!lr1Builder.parse(symbols, lrError)) {
+    // 传入 nullptr 回调：当前仅做语法校验，语义分析阶段替换为四元式生成回调
+    // &log_ 传入：输出 LR 内部的 Shift/Reduce/Accept 详细日志
+    if (!lr1Builder.parse(exprValues, lrError, nullptr, &log_)) {
         error("LR(1) 表达式分析失败: " + lrError);
         exitRule("表达式", false);
         return false;
