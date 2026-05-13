@@ -2106,7 +2106,7 @@ bool Parser::parseExpression(const vector<string>& stopTokens) {
             case 26: case 27:
                 passThrough(0);
                 break;
-            case 28:
+            case 28: // Factor -> ( Expr )，应透传 rhs[1] 而不是 rhs[0] 的 "("
                 passThrough(1);
                 break;
             case 2: {
