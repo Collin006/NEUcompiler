@@ -2100,11 +2100,14 @@ bool Parser::parseExpression(const vector<string>& stopTokens) {
 
         switch (prodIndex) {
             // 产生式编号见 ExpressionLR1Builder::initGrammar()
-            // 1/3/5/7/9/18/21/23~28: 语义透传
+            // 1/3/5/7/9/18/21/23~27: 语义透传；28 为 (Expr) 透传中间项
             case 1: case 3: case 5: case 7: case 9:
             case 18: case 21: case 23: case 24: case 25:
-            case 26: case 27: case 28:
+            case 26: case 27:
                 passThrough(0);
+                break;
+            case 28:
+                passThrough(1);
                 break;
             case 2: {
                 int boolTyp = ensureBuiltinType("b");
