@@ -788,6 +788,7 @@ bool Parser::parse() {
     pendingIdentifiers_.clear();
     pendingActualArgs_.clear();
     scopeLevel_ = 0;
+    scopeOffsets_.assign(1, 0);
     tempCounter_ = 0;
     currentRoutineSymbolIndex_ = -1;
     currentRoutineParamCount_ = 0;
