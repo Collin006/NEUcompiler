@@ -776,6 +776,7 @@ Parser::Parser(const vector<Token>& tokens)
     , indent_(0)
     , hasError_(false)
 {
+    scopeOffsets_.assign(1, 0);
 }
 
 bool Parser::parse() {
@@ -863,11 +864,11 @@ string Parser::getSymbolTableDump() const {
     ostringstream out;
     out << "===== 符号表(SYNBL) =====\n";
     out << left << setw(6) << "idx" << setw(24) << "name"
-        << setw(8) << "typ" << setw(8) << "cat" << setw(8) << "addr" << '\n';
+        << setw(8) << "typ" << setw(8) << "cat" << setw(16) << "addr" << '\n';
     for (size_t i = 0; i < ctx.synbl.size(); ++i) {
         const SynblItem& s = ctx.synbl[i];
         out << left << setw(6) << i << setw(24) << s.name
-            << setw(8) << s.typ << setw(8) << s.cat << setw(8) << s.addr << '\n';
+            << setw(8) << s.typ << setw(8) << s.cat << setw(16) << s.addr << '\n';
     }
     if (ctx.synbl.empty()) out << "(empty)\n";
 
@@ -904,13 +905,37 @@ int Parser::ensureBuiltinType(const string& tval) {
     return ensureBuiltinTypeShared(tval);
 }
 
+void Parser::enterScope() {
+    ++scopeLevel_;
+    if (scopeLevel_ >= static_cast<int>(scopeOffsets_.size())) {
+        scopeOffsets_.resize(scopeLevel_ + 1, 0);
+    }
+    scopeOffsets_[scopeLevel_] = 0;
+}
+
+void Parser::leaveScope() {
+    if (scopeLevel_ > 0) --scopeLevel_;
+}
+
+int Parser::allocateOffsetForCurrentScope() {
+    if (scopeLevel_ < 0) return 0;
+    if (scopeLevel_ >= static_cast<int>(scopeOffsets_.size())) {
+        scopeOffsets_.resize(scopeLevel_ + 1, 0);
+    }
+    return scopeOffsets_[scopeLevel_]++;
+}
+
+string Parser::formatAddr(int level, int offset) const {
+    return "(" + to_string(level) + ", " + to_string(offset) + ")";
+}
+
 string Parser::newTemp(int typ) {
     string name = "_t" + to_string(++tempCounter_);
     SynblItem item;
     item.name = name;
     item.typ = typ;
     item.cat = "v";
-    item.addr = scopeLevel_;
+    item.addr = formatAddr(scopeLevel_, allocateOffsetForCurrentScope());
     ctx.synbl.push_back(item);
     return name;
 }
@@ -930,7 +955,7 @@ void Parser::declarePendingIdentifiers(const string& cat, int typ) {
         if (idx < 0 || idx >= static_cast<int>(ctx.synbl.size())) continue;
         ctx.synbl[idx].typ = typ;
         ctx.synbl[idx].cat = cat;
-        ctx.synbl[idx].addr = scopeLevel_;
+        ctx.synbl[idx].addr = formatAddr(scopeLevel_, allocateOffsetForCurrentScope());
     }
     pendingIdentifiers_.clear();
 }
@@ -1197,7 +1222,7 @@ bool Parser::parseProgram() {
     }
     if (programIdx >= 0 && programIdx < static_cast<int>(ctx.synbl.size())) {
         ctx.synbl[programIdx].cat = "p";
-        ctx.synbl[programIdx].addr = 0;
+        ctx.synbl[programIdx].addr = formatAddr(0, -1);
     }
 
     if (!matchDelimiter(";")) {
@@ -1221,24 +1246,30 @@ bool Parser::parseProgram() {
     return true;
 }
 
-bool Parser::parseSubProgram() {
+bool Parser::parseSubProgram(bool enterNewScope) {
     enterRule("分程序");
 
-    /* SEMANTIC: 进入新的作用域层级 */
-    scopeLevel_++;
+    if (enterNewScope) {
+        /* SEMANTIC: 进入新的作用域层级 */
+        enterScope();
+    }
 
     if (!parseDeclarationPart()) {
+        if (enterNewScope) leaveScope();
         exitRule("分程序", false);
         return false;
     }
 
     if (!parseCompoundStatement()) {
+        if (enterNewScope) leaveScope();
         exitRule("分程序", false);
         return false;
     }
 
-    /* SEMANTIC: 退出作用域层级 */
-    if (scopeLevel_ > 0) scopeLevel_--;
+    if (enterNewScope) {
+        /* SEMANTIC: 退出作用域层级 */
+        leaveScope();
+    }
 
     exitRule("分程序", true);
     return true;
@@ -1454,21 +1485,25 @@ bool Parser::parseFunctionDeclaration() {
     currentRoutineParamCount_ = 0;
     if (funcIdx >= 0 && funcIdx < static_cast<int>(ctx.synbl.size())) {
         ctx.synbl[funcIdx].cat = "f";
-        ctx.synbl[funcIdx].addr = scopeLevel_;
+        ctx.synbl[funcIdx].addr = formatAddr(scopeLevel_, -1);
     }
 
+    enterScope();
     if (!parseFormalParameters()) {
+        leaveScope();
         exitRule("函数说明", false);
         return false;
     }
 
     if (!matchDelimiter(":")) {
+        leaveScope();
         error("函数缺少返回类型前的 ':'");
         exitRule("函数说明", false);
         return false;
     }
 
     if (!parseType()) {
+        leaveScope();
         exitRule("函数说明", false);
         return false;
     }
@@ -1479,17 +1514,20 @@ bool Parser::parseFunctionDeclaration() {
     }
 
     if (!matchDelimiter(";")) {
+        leaveScope();
         error("函数返回类型后缺少 ';'");
         exitRule("函数说明", false);
         return false;
     }
 
-    if (!parseSubProgram()) {
+    if (!parseSubProgram(false)) {
+        leaveScope();
         exitRule("函数说明", false);
         return false;
     }
 
     if (!matchDelimiter(";")) {
+        leaveScope();
         error("函数体后缺少 ';'");
         exitRule("函数说明", false);
         return false;
@@ -1497,6 +1535,7 @@ bool Parser::parseFunctionDeclaration() {
 
     /* SEMANTIC: 函数定义结束，回填地址 */
     currentRoutineSymbolIndex_ = -1;
+    leaveScope();
 
     exitRule("函数说明", true);
     return true;
@@ -1677,32 +1716,38 @@ bool Parser::parseProcedureDeclaration() {
     currentRoutineParamCount_ = 0;
     if (procIdx >= 0 && procIdx < static_cast<int>(ctx.synbl.size())) {
         ctx.synbl[procIdx].cat = "p";
-        ctx.synbl[procIdx].addr = scopeLevel_;
+        ctx.synbl[procIdx].addr = formatAddr(scopeLevel_, -1);
     }
 
+    enterScope();
     if (!parseFormalParameters()) {
+        leaveScope();
         exitRule("过程说明", false);
         return false;
     }
 
     if (!matchDelimiter(";")) {
+        leaveScope();
         error("过程参数后缺少 ';'");
         exitRule("过程说明", false);
         return false;
     }
 
-    if (!parseSubProgram()) {
+    if (!parseSubProgram(false)) {
+        leaveScope();
         exitRule("过程说明", false);
         return false;
     }
 
     if (!matchDelimiter(";")) {
+        leaveScope();
         error("过程体后缺少 ';'");
         exitRule("过程说明", false);
         return false;
     }
 
     currentRoutineSymbolIndex_ = -1;
+    leaveScope();
 
     exitRule("过程说明", true);
     return true;

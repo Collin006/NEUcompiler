@@ -105,7 +105,7 @@ private:
 
     // §1  程序定义
     bool parseProgram();
-    bool parseSubProgram();
+    bool parseSubProgram(bool enterNewScope = true);
 
     // §2  说明部分
     bool parseDeclarationPart();
@@ -166,6 +166,7 @@ private:
     vector<string> pendingActualArgs_;
 
     int scopeLevel_ = 0;
+    vector<int> scopeOffsets_;
     int tempCounter_ = 0;
     int currentRoutineSymbolIndex_ = -1;
     int currentRoutineParamCount_ = 0;
@@ -181,6 +182,10 @@ private:
     int emitQuad(const string& op, const string& arg1, const string& arg2, const string& result);
     void backpatchQuadResult(int quadIndex, int target);
     void declarePendingIdentifiers(const string& cat, int typ);
+    void enterScope();
+    void leaveScope();
+    int allocateOffsetForCurrentScope();
+    string formatAddr(int level, int offset) const;
 };
 
 #endif // NEUCOMPILER_PARSER_H
