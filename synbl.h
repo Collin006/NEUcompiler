@@ -19,6 +19,7 @@ using namespace std;
 // 说明：
 // CAT 采用种类编码：
 // f  : 函数
+// p  : 过程
 // c  : 常量
 // t  : 类型
 // d  : 域名，即记录字段名
@@ -26,13 +27,14 @@ using namespace std;
 // vn : 换名形参
 // vf : 赋值形参
 //
-// ADDR 根据 CAT 不同，分别指向 PFINFL、CONSL、LENL 等附属表项，
-// 或表示变量/形参在相应数据区中的地址信息。
+// ADDR 按种类存储：
+// - 变量/形参："(level, offset)"
+// - 过程/函数：指向过程/函数表 PFINFL 的下标（如 "PFINFL[0]"）
 struct SynblItem {
     string name;    // NAME：名字
     int typ;        // TYP：指针，指向类型表 TYPEL 的相应项
     string cat;     // CAT：种类编码，如 f、c、t、d、v、vn、vf
-    int addr;       // ADDR：地址或附加表下标，具体含义由 cat 决定
+    string addr;    // ADDR：地址信息，采用 "(level, offset)" 形式存储
 };
 
 // TYPEL：类型表
@@ -100,6 +102,9 @@ public:
 
     // PFINFL：过程/函数信息表
     vector<PfinflItem> pfinfl;
+
+    // PARAMBL：形参表（表项结构与 SYNBL 相同）
+    vector<SynblItem> parambl;
 
     // CONSL1：常量表1
     vector<int> consl1;

@@ -49,6 +49,12 @@ public:
     // 获取表达式文法 SELECT 集与 LR(1) 分析表的文本（自动构建）
     static bool getExpressionAnalysisDump(string& dump, string& error);
 
+    // 获取四元式输出文本
+    string getQuadrupleDump() const;
+
+    // 获取符号表输出文本
+    string getSymbolTableDump() const;
+
 private:
     // ==================== Token 导航 ====================
     const vector<Token>& tokens_;
@@ -99,7 +105,7 @@ private:
 
     // §1  程序定义
     bool parseProgram();
-    bool parseSubProgram();
+    bool parseSubProgram(bool enterNewScope = true);
 
     // §2  说明部分
     bool parseDeclarationPart();
@@ -146,6 +152,40 @@ private:
 
     // §11 类型
     bool parseType();
+
+    // ==================== 语义动作辅助 ====================
+    struct Quadruple {
+        string op;
+        string arg1;
+        string arg2;
+        string result;
+    };
+
+    vector<Quadruple> quadruples_;
+    vector<int> pendingIdentifiers_;
+    vector<string> pendingActualArgs_;
+
+    int scopeLevel_ = 0;
+    vector<int> scopeOffsets_;
+    int tempCounter_ = 0;
+    int currentRoutineSymbolIndex_ = -1;
+    int currentRoutineParamCount_ = 0;
+
+    int lastParsedTypeIndex_ = -1;
+    string lastParsedTypeCode_;
+    string lastExpressionPlace_;
+    string lastStatementIdentifier_;
+
+    int currentIdIndex() const;
+    int ensureBuiltinType(const string& tval);
+    string newTemp(int typ = -1);
+    int emitQuad(const string& op, const string& arg1, const string& arg2, const string& result);
+    void backpatchQuadResult(int quadIndex, int target);
+    void declarePendingIdentifiers(const string& cat, int typ);
+    void enterScope();
+    void leaveScope();
+    int allocateOffsetForCurrentScope();
+    string formatAddr(int level, int offset) const;
 };
 
 #endif // NEUCOMPILER_PARSER_H

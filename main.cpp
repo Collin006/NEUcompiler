@@ -128,6 +128,10 @@ int main(int argc, char* argv[]) {
         // 输出日志到控制台（分段）
         printLinesPaged(splitLines(parser.getLog()), 30);
 
+        // 4. 四元式输出
+        cout << "\n===== 四元式输出 =====\n";
+        printLinesPaged(splitLines(parser.getQuadrupleDump()), 30);
+
         // 自动写日志文件（与源文件同目录）
         string logPath = sourcePath + "_parse_log.txt";
         if (parser.writeLogToFile(logPath)) {
@@ -140,7 +144,7 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        cout << "\n[PASS] 词法和语法分析均通过。\n";
+        cout << "\n[PASS] 词法、语法与四元式生成均通过。\n";
 
     }
     catch (const exception& e) {
