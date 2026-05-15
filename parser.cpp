@@ -890,6 +890,17 @@ string Parser::getSymbolTableDump() const {
             << setw(8) << p.fn << setw(8) << p.entry << setw(8) << p.param << '\n';
     }
     if (ctx.pfinfl.empty()) out << "(empty)\n";
+
+    out << "===== 形参表(PARAMBL) =====\n";
+    out << left << setw(6) << "idx" << setw(24) << "name"
+        << setw(8) << "typ" << setw(8) << "cat" << setw(16) << "addr" << '\n';
+    for (size_t i = 0; i < ctx.parambl.size(); ++i) {
+        const SynblItem& s = ctx.parambl[i];
+        out << left << setw(6) << i << setw(24) << s.name
+            << setw(8) << s.typ << setw(8) << s.cat << setw(16) << s.addr << '\n';
+    }
+    if (ctx.parambl.empty()) out << "(empty)\n";
+
     return out.str();
 }
 
@@ -957,6 +968,9 @@ void Parser::declarePendingIdentifiers(const string& cat, int typ) {
         ctx.synbl[idx].typ = typ;
         ctx.synbl[idx].cat = cat;
         ctx.synbl[idx].addr = formatAddr(scopeLevel_, allocateOffsetForCurrentScope());
+        if (cat == "vf" || cat == "vn") {
+            ctx.parambl.push_back(ctx.synbl[idx]);
+        }
     }
     pendingIdentifiers_.clear();
 }
@@ -1486,7 +1500,7 @@ bool Parser::parseFunctionDeclaration() {
     currentRoutineParamCount_ = 0;
     if (funcIdx >= 0 && funcIdx < static_cast<int>(ctx.synbl.size())) {
         ctx.synbl[funcIdx].cat = "f";
-        ctx.synbl[funcIdx].addr = formatAddr(scopeLevel_, -1);
+        ctx.synbl[funcIdx].addr = "PFINFL[-1]";
     }
 
     enterScope();
@@ -1544,6 +1558,7 @@ bool Parser::parseFunctionDeclaration() {
 
 bool Parser::parseFormalParameters() {
     enterRule("形式参数");
+    int paramStart = static_cast<int>(ctx.parambl.size());
 
     if (matchDelimiter("(")) {
         if (!checkDelimiter(")")) {
@@ -1570,8 +1585,12 @@ bool Parser::parseFormalParameters() {
         item.off = 0;
         item.fn = currentRoutineParamCount_;
         item.entry = -1;
-        item.param = -1;
+        item.param = (currentRoutineParamCount_ > 0 ? paramStart : -1);
         ctx.pfinfl.push_back(item);
+        int pfinflIndex = static_cast<int>(ctx.pfinfl.size()) - 1;
+        if (currentRoutineSymbolIndex_ < static_cast<int>(ctx.synbl.size())) {
+            ctx.synbl[currentRoutineSymbolIndex_].addr = "PFINFL[" + to_string(pfinflIndex) + "]";
+        }
     }
 
     exitRule("形式参数", true);
@@ -1717,7 +1736,7 @@ bool Parser::parseProcedureDeclaration() {
     currentRoutineParamCount_ = 0;
     if (procIdx >= 0 && procIdx < static_cast<int>(ctx.synbl.size())) {
         ctx.synbl[procIdx].cat = "p";
-        ctx.synbl[procIdx].addr = formatAddr(scopeLevel_, -1);
+        ctx.synbl[procIdx].addr = "PFINFL[-1]";
     }
 
     enterScope();
