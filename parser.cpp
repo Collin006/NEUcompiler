@@ -789,7 +789,9 @@ bool Parser::parse() {
     pendingActualArgs_.clear();
     scopeLevel_ = 0;
     scopeOffsets_.assign(1, 0);
+    scopePath_.clear();
     tempCounter_ = 0;
+    labelCounter_ = 0;
     currentRoutineSymbolIndex_ = -1;
     currentRoutineParamCount_ = 0;
     lastParsedTypeIndex_ = INVALID_TYPE_INDEX;
@@ -929,6 +931,38 @@ void Parser::leaveScope() {
     if (scopeLevel_ > 0) --scopeLevel_;
 }
 
+void Parser::enterRoutine(const string& name) {
+    scopePath_.push_back(name);
+    enterScope();
+}
+
+void Parser::leaveRoutine() {
+    if (!scopePath_.empty()) scopePath_.pop_back();
+    leaveScope();
+}
+
+string Parser::newScopedName(const string& name) const {
+    string result = name;
+    for (const string& seg : scopePath_) {
+        result += "$" + seg;
+    }
+    return result;
+}
+
+string Parser::calleeRetName(const string& callee) const {
+    string result = "ret";
+    for (const string& seg : scopePath_) result += "$" + seg;
+    result += "$" + callee;
+    return result;
+}
+
+string Parser::calleeResultName(const string& callee) const {
+    string result = "_result";
+    for (const string& seg : scopePath_) result += "$" + seg;
+    result += "$" + callee;
+    return result;
+}
+
 int Parser::allocateOffsetForCurrentScope() {
     if (scopeLevel_ < 0) return 0;
     if (scopeLevel_ >= static_cast<int>(scopeOffsets_.size())) {
@@ -942,7 +976,7 @@ string Parser::formatAddr(int level, int offset) const {
 }
 
 string Parser::newTemp(int typ) {
-    string name = "_t" + to_string(++tempCounter_);
+    string name = newScopedName("_t" + to_string(++tempCounter_));
     SynblItem item;
     item.name = name;
     item.typ = typ;
@@ -950,6 +984,10 @@ string Parser::newTemp(int typ) {
     item.addr = formatAddr(scopeLevel_, allocateOffsetForCurrentScope());
     ctx.synbl.push_back(item);
     return name;
+}
+
+string Parser::newLabel() {
+    return "L_" + to_string(++labelCounter_);
 }
 
 int Parser::emitQuad(const string& op, const string& arg1, const string& arg2, const string& result) {
@@ -960,6 +998,11 @@ int Parser::emitQuad(const string& op, const string& arg1, const string& arg2, c
 void Parser::backpatchQuadResult(int quadIndex, int target) {
     if (quadIndex < 0 || quadIndex >= static_cast<int>(quadruples_.size())) return;
     quadruples_[quadIndex].result = to_string(target);
+}
+
+void Parser::backpatchQuadResult(int quadIndex, const string& target) {
+    if (quadIndex < 0 || quadIndex >= static_cast<int>(quadruples_.size())) return;
+    quadruples_[quadIndex].result = target;
 }
 
 void Parser::declarePendingIdentifiers(const string& cat, int typ) {
@@ -1500,27 +1543,36 @@ bool Parser::parseFunctionDeclaration() {
     /* SEMANTIC: 函数名入符号表，cat = 'f' */
     currentRoutineSymbolIndex_ = funcIdx;
     currentRoutineParamCount_ = 0;
+    string funcName = (funcIdx >= 0 && funcIdx < static_cast<int>(ctx.synbl.size()))
+                      ? ctx.synbl[funcIdx].name : "?";
     if (funcIdx >= 0 && funcIdx < static_cast<int>(ctx.synbl.size())) {
         ctx.synbl[funcIdx].cat = "f";
         ctx.synbl[funcIdx].addr = "PFINFL[-1]";
     }
 
-    enterScope();
+    // 生成函数入口标签（scopePath 还不含本函数名）
+    {
+        string entryLabel = funcName + "_entry";
+        for (const string& seg : scopePath_) entryLabel += "$" + seg;
+        emitQuad("lb", entryLabel, "", "");
+    }
+    enterRoutine(funcName);
+
     if (!parseFormalParameters()) {
-        leaveScope();
+        leaveRoutine();
         exitRule("函数说明", false);
         return false;
     }
 
     if (!matchDelimiter(":")) {
-        leaveScope();
+        leaveRoutine();
         error("函数缺少返回类型前的 ':'");
         exitRule("函数说明", false);
         return false;
     }
 
     if (!parseType()) {
-        leaveScope();
+        leaveRoutine();
         exitRule("函数说明", false);
         return false;
     }
@@ -1531,28 +1583,30 @@ bool Parser::parseFunctionDeclaration() {
     }
 
     if (!matchDelimiter(";")) {
-        leaveScope();
+        leaveRoutine();
         error("函数返回类型后缺少 ';'");
         exitRule("函数说明", false);
         return false;
     }
 
     if (!parseSubProgram(false)) {
-        leaveScope();
+        leaveRoutine();
         exitRule("函数说明", false);
         return false;
     }
 
     if (!matchDelimiter(";")) {
-        leaveScope();
+        leaveRoutine();
         error("函数体后缺少 ';'");
         exitRule("函数说明", false);
         return false;
     }
 
-    /* SEMANTIC: 函数定义结束，回填地址 */
+    /* SEMANTIC: 函数结束，跳回调用者 */
+    emitQuad("goto", newScopedName("ret"), "", "");
+
     currentRoutineSymbolIndex_ = -1;
-    leaveScope();
+    leaveRoutine();
 
     exitRule("函数说明", true);
     return true;
@@ -1736,40 +1790,52 @@ bool Parser::parseProcedureDeclaration() {
     /* SEMANTIC: 过程名入符号表 */
     currentRoutineSymbolIndex_ = procIdx;
     currentRoutineParamCount_ = 0;
+    string procName = (procIdx >= 0 && procIdx < static_cast<int>(ctx.synbl.size()))
+                      ? ctx.synbl[procIdx].name : "?";
     if (procIdx >= 0 && procIdx < static_cast<int>(ctx.synbl.size())) {
         ctx.synbl[procIdx].cat = "p";
         ctx.synbl[procIdx].addr = "PFINFL[-1]";
     }
 
-    enterScope();
+    // 生成过程入口标签
+    {
+        string entryLabel = procName + "_entry";
+        for (const string& seg : scopePath_) entryLabel += "$" + seg;
+        emitQuad("lb", entryLabel, "", "");
+    }
+    enterRoutine(procName);
+
     if (!parseFormalParameters()) {
-        leaveScope();
+        leaveRoutine();
         exitRule("过程说明", false);
         return false;
     }
 
     if (!matchDelimiter(";")) {
-        leaveScope();
+        leaveRoutine();
         error("过程参数后缺少 ';'");
         exitRule("过程说明", false);
         return false;
     }
 
     if (!parseSubProgram(false)) {
-        leaveScope();
+        leaveRoutine();
         exitRule("过程说明", false);
         return false;
     }
 
     if (!matchDelimiter(";")) {
-        leaveScope();
+        leaveRoutine();
         error("过程体后缺少 ';'");
         exitRule("过程说明", false);
         return false;
     }
 
+    /* SEMANTIC: 过程结束，跳回调用者 */
+    emitQuad("goto", newScopedName("ret"), "", "");
+
     currentRoutineSymbolIndex_ = -1;
-    leaveScope();
+    leaveRoutine();
 
     exitRule("过程说明", true);
     return true;
@@ -2349,16 +2415,33 @@ bool Parser::parseAssignOrCallStatement() {
         emitQuad(":=", lastExpressionPlace_, "", lastStatementIdentifier_);
     } else {
         // 过程调用（含无参调用）
+        // 收集实参
+        pendingActualArgs_.clear();
         if (!parseCallSuffix()) {
             exitRule("赋值或调用语句", false);
             return false;
         }
 
-        /* SEMANTIC: 生成过程调用四元式（或函数调用丢弃返回值） */
-        for (const string& arg : pendingActualArgs_) {
-            emitQuad("param", arg, "", "");
+        // 生成 goto+label 调用序列
+        string routineCallName = lastStatementIdentifier_;
+        string retLabel = newLabel();
+        // 入口标签：在 CALLER 的 scopePath 基础上 append callee
+        string entryLabel = routineCallName + "_entry";
+        for (const string& seg : scopePath_) entryLabel += "$" + seg;
+
+        // 存返回地址
+        emitQuad(":=", retLabel, "", calleeRetName(routineCallName));
+        // 实参→形参
+        for (size_t i = 0; i < pendingActualArgs_.size(); ++i) {
+            string paramName = "_p" + to_string(i);
+            for (const string& seg : scopePath_) paramName += "$" + seg;
+            paramName += "$" + routineCallName;
+            emitQuad(":=", pendingActualArgs_[i], "", paramName);
         }
-        emitQuad("call", lastStatementIdentifier_, to_string(pendingActualArgs_.size()), "");
+        // 跳入
+        emitQuad("goto", entryLabel, "", "");
+        // 返回点
+        emitQuad("lb", retLabel, "", "");
     }
 
     exitRule("赋值或调用语句", true);
@@ -2728,13 +2811,33 @@ bool Parser::parseExpression(const vector<string>& stopTokens) {
             }
             case 22: {
                 if (rhs[1].isCall) {
-                    for (const string& arg : rhs[1].args) {
-                        emitQuad("param", arg, "", "");
-                    }
+                    // 函数调用在表达式中: id(args)
+                    string callName = rhs[0].text;
+                    string retLabel = newLabel();
                     int callResultTyp = rhs[0].typ;
                     if (callResultTyp < 0) callResultTyp = ensureBuiltinType("i");
                     string t = newTemp(callResultTyp);
-                    emitQuad("call", rhs[0].text, to_string(rhs[1].args.size()), t);
+
+                    // 入口标签
+                    string entryLabel = callName + "_entry";
+                    for (const string& seg : scopePath_) entryLabel += "$" + seg;
+
+                    // 存返回地址
+                    emitQuad(":=", retLabel, "", calleeRetName(callName));
+                    // 传参
+                    for (size_t i = 0; i < rhs[1].args.size(); ++i) {
+                        string paramName = "_p" + to_string(i);
+                        for (const string& seg : scopePath_) paramName += "$" + seg;
+                        paramName += "$" + callName;
+                        emitQuad(":=", rhs[1].args[i], "", paramName);
+                    }
+                    // 跳入
+                    emitQuad("goto", entryLabel, "", "");
+                    // 返回点
+                    emitQuad("lb", retLabel, "", "");
+                    // 取返回值
+                    emitQuad(":=", calleeResultName(callName), "", t);
+
                     result.text = t;
                     result.typ = callResultTyp;
                 } else {

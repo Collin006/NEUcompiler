@@ -175,7 +175,9 @@ private:
 
     int scopeLevel_ = 0;
     vector<int> scopeOffsets_;
+    vector<string> scopePath_;       // 作用域全路径 ["max","inner"...]
     int tempCounter_ = 0;
+    int labelCounter_ = 0;
     int currentRoutineSymbolIndex_ = -1;
     int currentRoutineParamCount_ = 0;
 
@@ -187,11 +189,18 @@ private:
     int currentIdIndex() const;
     int ensureBuiltinType(const string& tval);
     string newTemp(int typ = -1);
+    string newScopedName(const string& name) const;  // 当前作用域路径后缀
+    string newLabel();                                // 唯一标签
+    string calleeRetName(const string& callee) const;  // callee 的 ret 变量全路径名
+    string calleeResultName(const string& callee) const; // callee 的 _result 全路径名
     int emitQuad(const string& op, const string& arg1, const string& arg2, const string& result);
     void backpatchQuadResult(int quadIndex, int target);
+    void backpatchQuadResult(int quadIndex, const string& target);
     void declarePendingIdentifiers(const string& cat, int typ);
     void enterScope();
     void leaveScope();
+    void enterRoutine(const string& name);   // 进入函数/过程作用域
+    void leaveRoutine();                     // 退出函数/过程作用域
     int allocateOffsetForCurrentScope();
     string formatAddr(int level, int offset) const;
 };
