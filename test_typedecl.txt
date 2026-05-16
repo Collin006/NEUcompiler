@@ -15,7 +15,7 @@ type
         score : real;
     end;
 
-    { 嵌套引用：type 段可引用已定义类型 }
+    { 嵌套引用 }
     Line = record
         p1 : Point;
         p2 : Point;
@@ -30,5 +30,22 @@ var
 
 begin
     a := 10;
-    a := a + 1;
+
+    { 数组下标使用 }
+    arr_int[1] := 100;
+    arr_int[a] := 200;
+    a := arr_int[1] + arr_int[2];
+
+    { 字段访问 }
+    pt.x := 10;
+    pt.y := 20;
+    a := pt.x + pt.y;
+
+    { 嵌套字段访问 }
+    l.p1.x := 1;
+    l.p1.y := 2;
+    a := l.p1.x + l.p2.y;
+
+    { 数组下标作为字段的一部分 }
+    arr_int[1] := pt.x;
 end.

@@ -2302,6 +2302,36 @@ bool Parser::parseAssignOrCallStatement() {
     /* SEMANTIC: 查符号表获取该标识符信息 */
     lastStatementIdentifier_ = idName;
 
+    // 处理数组下标 / 字段访问后缀（arr[1]、pt.x 等）
+    // 合并到 lastStatementIdentifier_ 中，不走函数调用路径
+    while (checkDelimiter("[") || checkDelimiter(".")) {
+        if (checkDelimiter("[")) {
+            matchDelimiter("[");
+            lastStatementIdentifier_ += "[";
+            // 解析下标表达式 token 串（简单扫描到匹配的 ]）
+            int bracketDepth = 1;
+            while (bracketDepth > 0 && !isAtEnd()) {
+                Token ct = current();
+                if (ct.type == "DELIMITER") {
+                    int idx = -1;
+                    try { size_t p = 0; idx = stoi(ct.value, &p); if (p != ct.value.size()) idx = -1; } catch (...) {}
+                    if (idx >= 0 && idx < static_cast<int>(ctx.delimiterTable.size())) {
+                        const string& d = ctx.delimiterTable[idx];
+                        if (d == "[") bracketDepth++;
+                        if (d == "]") bracketDepth--;
+                    }
+                }
+                lastStatementIdentifier_ += tokenToString(advance());
+            }
+        } else if (checkDelimiter(".")) {
+            matchDelimiter(".");
+            lastStatementIdentifier_ += ".";
+            if (checkId()) {
+                lastStatementIdentifier_ += tokenToString(advance());
+            }
+        }
+    }
+
     if (checkDelimiter(":=")) {
         // 赋值语句
         if (!matchDelimiter(":=")) {
@@ -2430,11 +2460,12 @@ bool Parser::parseExpression(const vector<string>& stopTokens) {
     size_t beginPos = pos_;
     size_t scanPos = pos_;
     int parenDepth = 0;
+    int bracketDepth = 0;   // 数组下标的括号深度
 
     while (scanPos < tokens_.size()) {
         const Token& t = tokens_[scanPos];
 
-        if (parenDepth == 0 && tokenMatchesStop(t, stopTokens)) {
+        if (parenDepth == 0 && bracketDepth == 0 && tokenMatchesStop(t, stopTokens)) {
             break;
         }
 
@@ -2460,6 +2491,14 @@ bool Parser::parseExpression(const vector<string>& stopTokens) {
                         // 非平衡右括号交由外层规则处理
                         break;
                     }
+                } else if (d == "[") {
+                    bracketDepth++;
+                } else if (d == "]") {
+                    if (bracketDepth > 0) {
+                        bracketDepth--;
+                    } else {
+                        break;
+                    }
                 }
             }
         }
@@ -2474,11 +2513,103 @@ bool Parser::parseExpression(const vector<string>& stopTokens) {
     }
 
     // 收集表达式的语义值序列（每个 token 映射为语义值，保留原文和行号）
+    // 预处理：合并 ID [ expr ] 为单个语义值（如 arr[1]），支持嵌套 arr[i][j]
     vector<SemanticValue> exprValues;
     exprValues.reserve(scanPos - beginPos);
 
-    for (size_t i = beginPos; i < scanPos; ++i) {
+    for (size_t i = beginPos; i < scanPos; ) {
         const Token& t = tokens_[i];
+
+        // 检查 ID 后是否跟着 [ 或 .，如果是则合并整个 ID[...] 或 ID.id 为一个值
+        if (t.type == "ID" && i + 1 < scanPos) {
+            const Token& next = tokens_[i + 1];
+            bool isSuffix = false;
+            if (next.type == "DELIMITER") {
+                int idx = -1;
+                try { size_t p = 0; idx = stoi(next.value, &p); if (p != next.value.size()) idx = -1; } catch (...) {}
+                if (idx >= 0 && idx < static_cast<int>(ctx.delimiterTable.size())) {
+                    const string& d = ctx.delimiterTable[idx];
+                    if (d == "[" || d == ".") isSuffix = true;
+                }
+            }
+
+            if (isSuffix) {
+                // 合并 ID + [ + 内容 + ] 为单个语义值
+                string combinedText;
+                {
+                    int synblIdx = -1;
+                    try { size_t p = 0; synblIdx = stoi(t.value, &p); if (p != t.value.size()) synblIdx = -1; } catch (...) {}
+                    if (synblIdx >= 0 && synblIdx < static_cast<int>(ctx.synbl.size()))
+                        combinedText = ctx.synbl[synblIdx].name;
+                    else
+                        combinedText = "?";
+                }
+
+                // 跳过 ID
+                i++;
+
+                // 处理所有连续的 [ expr ] 和 . id 后缀
+                while (i < scanPos) {
+                    const Token& bracket = tokens_[i];
+                    if (bracket.type == "DELIMITER") {
+                        int idx = -1;
+                        try { size_t p = 0; idx = stoi(bracket.value, &p); if (p != bracket.value.size()) idx = -1; } catch (...) {}
+
+                        if (idx >= 0 && idx < static_cast<int>(ctx.delimiterTable.size())) {
+                            const string& d = ctx.delimiterTable[idx];
+
+                            if (d == "[") {
+                                // 收集 [...] 内部的所有 token
+                                combinedText += "[";
+                                i++; // 跳过 [
+                                int bracketDepth2 = 1;
+                                while (i < scanPos && bracketDepth2 > 0) {
+                                    const Token& inner = tokens_[i];
+                                    if (inner.type == "DELIMITER") {
+                                        int iidx = -1;
+                                        try { size_t p2 = 0; iidx = stoi(inner.value, &p2); if (p2 != inner.value.size()) iidx = -1; } catch (...) {}
+                                        if (iidx >= 0 && iidx < static_cast<int>(ctx.delimiterTable.size())) {
+                                            const string& dd = ctx.delimiterTable[iidx];
+                                            if (dd == "[") bracketDepth2++;
+                                            if (dd == "]") bracketDepth2--;
+                                        }
+                                    }
+                                    combinedText += tokenToString(inner);
+                                    i++;
+                                }
+                                // 不额外加 ]，因为已经在循环内通过 tokenToString 追加
+                                continue;
+                            }
+
+                            if (d == ".") {
+                                // 字段访问：.id
+                                combinedText += ".";
+                                i++; // 跳过 .
+                                if (i < scanPos) {
+                                    combinedText += tokenToString(tokens_[i]);
+                                    i++; // 跳过字段名
+                                }
+                                continue;
+                            }
+                        }
+                    }
+                    break; // 不是 [ 或 .，停止
+                }
+
+                SemanticValue val;
+                val.symbol = "id";
+                val.text = combinedText;
+                val.line = t.line;
+                val.typ = t.type == "ID" ? ([]() -> int {
+                    // 尝试获取 ID 的类型
+                    return -1;
+                })() : -1;
+                exprValues.push_back(val);
+                continue;
+            }
+        }
+
+        // 普通 token
         SemanticValue val;
         if (!tokenToExpressionValue(t, val)) {
             error("表达式中出现非法记号: " + tokenToString(t));
@@ -2486,6 +2617,7 @@ bool Parser::parseExpression(const vector<string>& stopTokens) {
             return false;
         }
         exprValues.push_back(val);
+        i++;
     }
 
     auto reduce = [this](int prodIndex, const string& lhs, const vector<SemanticValue>& rhs) -> SemanticValue {

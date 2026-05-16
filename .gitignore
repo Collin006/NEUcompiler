@@ -21,4 +21,6 @@ cmake_install.cmake
 NEUcompiler
 
 test_parser.txt_parse_log.txt
+*_parse_log.txt
+*_quadruples.txt
 
