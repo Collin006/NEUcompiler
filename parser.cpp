@@ -1299,8 +1299,8 @@ bool Parser::parseSubProgram(bool enterNewScope) {
 bool Parser::parseDeclarationPart() {
     enterRule("说明部分");
 
-    // FIRST(〈说明语句〉) = { var, function, procedure }
-    while (checkKeyword("var") || checkKeyword("function") || checkKeyword("procedure")) {
+    // FIRST(〈说明语句〉) = { var, function, procedure, type }
+    while (checkKeyword("var") || checkKeyword("function") || checkKeyword("procedure") || checkKeyword("type")) {
         if (!parseDeclarationStatement()) {
             exitRule("说明部分", false);
             return false;
@@ -1322,8 +1322,10 @@ bool Parser::parseDeclarationStatement() {
         ok = parseFunctionDeclaration();
     } else if (checkKeyword("procedure")) {
         ok = parseProcedureDeclaration();
+    } else if (checkKeyword("type")) {
+        ok = parseTypeDeclaration();
     } else {
-        error("缺少 var / function / procedure");
+        error("缺少 var / function / procedure / type");
         ok = false;
     }
 
@@ -1774,7 +1776,345 @@ bool Parser::parseProcedureDeclaration() {
 }
 
 // ============================================================
-// §6  复合语句
+// §6  类型说明（type 声明段）
+//     〈类型说明〉 → type 〈类型定义表〉
+//     〈类型定义表〉 → 〈类型定义〉 ; 〈类型定义表〉 | 〈类型定义〉 ;
+//     〈类型定义〉 → ID = 〈类型构造器〉
+//     〈类型构造器〉 → array [ INT .. INT ] of 〈类型引用〉
+//                     | record 〈字段表〉 end
+//     〈字段表〉 → 〈字段〉 ; 〈字段表〉 | 〈字段〉 ;
+//     〈字段〉 → 〈标识符表〉 : 〈类型引用〉
+//
+//   语义动作：不生成四元式。填充 TYPEL/AINFL/RINFL 表，
+//   类型名写入 SYNBL（cat='t'）。
+// ============================================================
+
+bool Parser::parseTypeDeclaration() {
+    enterRule("类型说明");
+
+    if (!matchKeyword("type")) {
+        error("缺少关键字 'type'");
+        exitRule("类型说明", false);
+        return false;
+    }
+
+    if (!parseTypeDefinitionList()) {
+        exitRule("类型说明", false);
+        return false;
+    }
+
+    exitRule("类型说明", true);
+    return true;
+}
+
+bool Parser::parseTypeDefinitionList() {
+    enterRule("类型定义表");
+
+    // 至少一条类型定义
+    if (!parseTypeDefinition()) {
+        exitRule("类型定义表", false);
+        return false;
+    }
+
+    if (!matchDelimiter(";")) {
+        error("类型定义后缺少 ';'");
+        exitRule("类型定义表", false);
+        return false;
+    }
+
+    /* SEMANTIC: 将类型名注册到符号表 */
+
+    // 循环处理后续定义：FIRST(〈类型定义〉) = { ID }
+    while (checkId()) {
+        if (!parseTypeDefinition()) {
+            exitRule("类型定义表", false);
+            return false;
+        }
+
+        if (!matchDelimiter(";")) {
+            error("类型定义后缺少 ';'");
+            exitRule("类型定义表", false);
+            return false;
+        }
+
+        /* SEMANTIC: 将类型名注册到符号表 */
+    }
+
+    exitRule("类型定义表", true);
+    return true;
+}
+
+bool Parser::parseTypeDefinition() {
+    enterRule("类型定义");
+
+    // 读取类型名
+    if (!matchId()) {
+        error("缺少类型名");
+        exitRule("类型定义", false);
+        return false;
+    }
+
+    // 获取刚匹配的类型名在 synbl 中的索引
+    int typeNameSynblIndex = -1;
+    if (pos_ >= 1 && tokens_[pos_ - 1].type == "ID") {
+        int idx = -1;
+        try { idx = stoi(tokens_[pos_ - 1].value); } catch (...) {}
+        if (idx >= 0 && idx < static_cast<int>(ctx.synbl.size()))
+            typeNameSynblIndex = idx;
+    }
+
+    if (!matchDelimiter("=")) {
+        error("类型定义中缺少 '='");
+        exitRule("类型定义", false);
+        return false;
+    }
+
+    // 解析类型构造器，返回新建的 TYPEL 索引
+    int typelIndex = -1;
+    if (!parseTypeConstructor(typelIndex)) {
+        exitRule("类型定义", false);
+        return false;
+    }
+
+    // 将类型名写入符号表（cat='t'，addr 指向 TYPEL 条目）
+    if (typeNameSynblIndex >= 0 && typelIndex >= 0) {
+        ctx.synbl[typeNameSynblIndex].cat = "t";
+        ctx.synbl[typeNameSynblIndex].typ = typelIndex;
+        ctx.synbl[typeNameSynblIndex].addr = "";  // 类型定义无运行时地址
+    }
+
+    exitRule("类型定义", true);
+    return true;
+}
+
+bool Parser::parseTypeConstructor(int& typelIndex) {
+    enterRule("类型构造器");
+
+    typelIndex = -1;
+
+    if (checkKeyword("array")) {
+        // array [ INT .. INT ] of 〈类型引用〉
+        if (!matchKeyword("array")) {
+            error("缺少关键字 'array'");
+            exitRule("类型构造器", false);
+            return false;
+        }
+
+        if (!matchDelimiter("[")) {
+            error("array 后缺少 '['");
+            exitRule("类型构造器", false);
+            return false;
+        }
+
+        // 下界
+        int low = 0;
+        if (current().type == "CONSL1") {
+            low = ctx.consl1[stoi(current().value)];
+        } else {
+            error("数组下界必须是整数常量");
+            exitRule("类型构造器", false);
+            return false;
+        }
+        logMatch(advance());
+
+        if (!matchDelimiter("..")) {
+            error("数组界缺少 '..'");
+            exitRule("类型构造器", false);
+            return false;
+        }
+
+        // 上界
+        int up = 0;
+        if (current().type == "CONSL1") {
+            up = ctx.consl1[stoi(current().value)];
+        } else {
+            error("数组上界必须是整数常量");
+            exitRule("类型构造器", false);
+            return false;
+        }
+        logMatch(advance());
+
+        if (!matchDelimiter("]")) {
+            error("数组界缺少 ']'");
+            exitRule("类型构造器", false);
+            return false;
+        }
+
+        if (!matchKeyword("of")) {
+            error("array 后缺少 'of'");
+            exitRule("类型构造器", false);
+            return false;
+        }
+
+        // 元素类型
+        if (!parseType()) {
+            exitRule("类型构造器", false);
+            return false;
+        }
+
+        int elemTypIndex = lastParsedTypeIndex_;
+
+        // 计算元素长度
+        int clen = 1;  // 默认 1 个值单元
+        if (elemTypIndex >= 0 && elemTypIndex < static_cast<int>(ctx.typel.size())) {
+            // 简化：所有基本类型占 1 个值单元
+            clen = 1;
+        }
+
+        // 填 AINFL
+        AinflItem ai;
+        ai.low = low;
+        ai.up = up;
+        ai.ctp = elemTypIndex;
+        ai.clen = clen;
+        ctx.ainfl.push_back(ai);
+        int ainflIndex = static_cast<int>(ctx.ainfl.size()) - 1;
+
+        // 填 TYPEL（数组类型）
+        TypelItem ti;
+        ti.tval = "a";
+        ti.tpoint = ainflIndex;
+        ctx.typel.push_back(ti);
+        typelIndex = static_cast<int>(ctx.typel.size()) - 1;
+
+        logInfo("数组类型: [" + to_string(low) + ".." + to_string(up) + "] of type[" +
+                to_string(elemTypIndex) + "], clen=" + to_string(clen));
+
+    } else if (checkKeyword("record")) {
+        // record 〈字段表〉 end
+        if (!matchKeyword("record")) {
+            error("缺少关键字 'record'");
+            exitRule("类型构造器", false);
+            return false;
+        }
+
+        // 记录解析前的 RINFL 起始位置
+        int rinflStart = static_cast<int>(ctx.rinfl.size());
+        int currentOff = 0;
+
+        if (!parseFieldList(currentOff)) {
+            exitRule("类型构造器", false);
+            return false;
+        }
+
+        if (!matchKeyword("end")) {
+            error("record 缺少 'end'");
+            exitRule("类型构造器", false);
+            return false;
+        }
+
+        // 填 TYPEL（结构类型）
+        TypelItem ti;
+        ti.tval = "d";
+        ti.tpoint = rinflStart;  // 指向 RINFL 第一条字段
+        ctx.typel.push_back(ti);
+        typelIndex = static_cast<int>(ctx.typel.size()) - 1;
+
+        logInfo("记录类型: " + to_string(static_cast<int>(ctx.rinfl.size()) - rinflStart) +
+                " 个字段, RINFL 起始=" + to_string(rinflStart));
+    } else {
+        error("缺少 array 或 record");
+        exitRule("类型构造器", false);
+        return false;
+    }
+
+    exitRule("类型构造器", true);
+    return true;
+}
+
+bool Parser::parseFieldList(int& currentOff) {
+    enterRule("字段表");
+
+    // 至少一个字段
+    if (!parseField(currentOff)) {
+        exitRule("字段表", false);
+        return false;
+    }
+
+    if (!matchDelimiter(";")) {
+        error("字段后缺少 ';'");
+        exitRule("字段表", false);
+        return false;
+    }
+
+    // 后续字段
+    while (checkId()) {
+        if (!parseField(currentOff)) {
+            exitRule("字段表", false);
+            return false;
+        }
+
+        if (!matchDelimiter(";")) {
+            error("字段后缺少 ';'");
+            exitRule("字段表", false);
+            return false;
+        }
+    }
+
+    exitRule("字段表", true);
+    return true;
+}
+
+bool Parser::parseField(int& currentOff) {
+    enterRule("字段");
+
+    // 收集字段标识符
+    vector<int> fieldIds;
+    if (!matchId()) {
+        error("字段缺少标识符");
+        exitRule("字段", false);
+        return false;
+    }
+    if (pos_ >= 1 && tokens_[pos_ - 1].type == "ID") {
+        int idx = -1;
+        try { idx = stoi(tokens_[pos_ - 1].value); } catch (...) {}
+        if (idx >= 0 && idx < static_cast<int>(ctx.synbl.size()))
+            fieldIds.push_back(idx);
+    }
+
+    while (matchDelimiter(",")) {
+        if (!matchId()) {
+            error("',' 后缺少标识符");
+            exitRule("字段", false);
+            return false;
+        }
+        if (pos_ >= 1 && tokens_[pos_ - 1].type == "ID") {
+            int idx = -1;
+            try { idx = stoi(tokens_[pos_ - 1].value); } catch (...) {}
+            if (idx >= 0 && idx < static_cast<int>(ctx.synbl.size()))
+                fieldIds.push_back(idx);
+        }
+    }
+
+    if (!matchDelimiter(":")) {
+        error("字段缺少 ':'");
+        exitRule("字段", false);
+        return false;
+    }
+
+    if (!parseType()) {
+        exitRule("字段", false);
+        return false;
+    }
+
+    int fieldTypIndex = lastParsedTypeIndex_;
+
+    // 为每个字段标识符填 RINFL
+    for (int idIdx : fieldIds) {
+        RinflItem ri;
+        ri.id = ctx.synbl[idIdx].name;
+        ri.off = currentOff;
+        ri.tp = fieldTypIndex;
+        ctx.rinfl.push_back(ri);
+        currentOff++;  // 每个字段占 1 个值单元
+    }
+
+    exitRule("字段", true);
+    return true;
+}
+
+// ============================================================
+// §7  复合语句
 //     〈复合语句〉 → begin 〈语句表〉 end
 //     〈语句表〉 → 〈语句〉 ; 〈语句表〉 | ε
 // ============================================================
@@ -2332,50 +2672,66 @@ bool Parser::parseExpression(const vector<string>& stopTokens) {
 }
 
 // ============================================================
-// §11 类型
-//     〈类型〉 → integer | real | char | boolean | string
+// §12 类型引用
+//     〈类型引用〉 → integer | real | char | boolean | string | ID
 // ============================================================
 
 bool Parser::parseType() {
-    enterRule("类型");
+    enterRule("类型引用");
 
     if (matchKeyword("integer")) {
         lastParsedTypeCode_ = "i";
         lastParsedTypeIndex_ = ensureBuiltinType(lastParsedTypeCode_);
-        /* SEMANTIC: 返回类型编码（tval） */
-        exitRule("类型", true);
+        exitRule("类型引用", true);
         return true;
     }
     if (matchKeyword("real")) {
         lastParsedTypeCode_ = "r";
         lastParsedTypeIndex_ = ensureBuiltinType(lastParsedTypeCode_);
-        /* SEMANTIC: 返回类型编码（tval） */
-        exitRule("类型", true);
+        exitRule("类型引用", true);
         return true;
     }
     if (matchKeyword("char")) {
         lastParsedTypeCode_ = "c";
         lastParsedTypeIndex_ = ensureBuiltinType(lastParsedTypeCode_);
-        /* SEMANTIC: 返回类型编码（tval） */
-        exitRule("类型", true);
+        exitRule("类型引用", true);
         return true;
     }
     if (matchKeyword("boolean")) {
         lastParsedTypeCode_ = "b";
         lastParsedTypeIndex_ = ensureBuiltinType(lastParsedTypeCode_);
-        /* SEMANTIC: 返回类型编码（tval） */
-        exitRule("类型", true);
+        exitRule("类型引用", true);
         return true;
     }
     if (matchKeyword("string")) {
         lastParsedTypeCode_ = "s";
         lastParsedTypeIndex_ = ensureBuiltinType(lastParsedTypeCode_);
-        /* SEMANTIC: 返回类型编码（tval） */
-        exitRule("类型", true);
+        exitRule("类型引用", true);
         return true;
     }
 
-    error("缺少类型（integer / real / char / boolean / string）");
-    exitRule("类型", false);
+    // 用户自定义类型名（ID）
+    if (checkId()) {
+        Token t = current();
+        int idx = stoi(t.value);
+        if (idx >= 0 && idx < static_cast<int>(ctx.synbl.size())) {
+            const SynblItem& si = ctx.synbl[idx];
+            if (si.cat == "t") {
+                // 自定义类型：typ 字段指向 TYPEL 条目
+                lastParsedTypeCode_ = "";  // 非基本类型
+                lastParsedTypeIndex_ = si.typ;
+                logMatch(advance());
+                exitRule("类型引用", true);
+                return true;
+            }
+            // cat != 't'，不是类型名
+        }
+        error("标识符不是已定义的类型名");
+        exitRule("类型引用", false);
+        return false;
+    }
+
+    error("缺少类型（integer / real / char / boolean / string）或自定义类型名");
+    exitRule("类型引用", false);
     return false;
 }

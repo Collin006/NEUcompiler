@@ -130,7 +130,15 @@ private:
     // §5  过程说明
     bool parseProcedureDeclaration();
 
-    // §6  复合语句
+    // §6  类型说明（type 声明段，不生成四元式，仅填表）
+    bool parseTypeDeclaration();
+    bool parseTypeDefinitionList();
+    bool parseTypeDefinition();
+    bool parseTypeConstructor(int& typelIndex);
+    bool parseFieldList(int& currentOff);
+    bool parseField(int& currentOff);
+
+    // §7  复合语句
     bool parseCompoundStatement();
     bool parseStatementList();
 

@@ -1,0 +1,34 @@
+program TestTypeDecl;
+
+type
+    { 数组类型 }
+    MyArray = array [1 .. 10] of integer;
+
+    { 记录类型 }
+    Point = record
+        x : integer;
+        y : integer;
+    end;
+
+    Student = record
+        id : integer;
+        score : real;
+    end;
+
+    { 嵌套引用：type 段可引用已定义类型 }
+    Line = record
+        p1 : Point;
+        p2 : Point;
+    end;
+
+var
+    a : integer;
+    arr_int : MyArray;
+    pt : Point;
+    s : Student;
+    l : Line;
+
+begin
+    a := 10;
+    a := a + 1;
+end.

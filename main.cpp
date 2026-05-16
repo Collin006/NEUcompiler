@@ -138,6 +138,17 @@ int main(int argc, char* argv[]) {
             cout << "\n[LOG] 详细日志已写入: " << logPath << "\n";
         }
 
+        // 单独输出四元式文件（不含语法树，便于后续处理）
+        string quadPath = sourcePath + "_quadruples.txt";
+        {
+            ofstream qout(quadPath, ios::out | ios::trunc);
+            if (qout.is_open()) {
+                qout << parser.getQuadrupleDump();
+                qout.close();
+                cout << "[LOG] 四元式文件已写入: " << quadPath << "\n";
+            }
+        }
+
         if (!parseOk) {
             cerr << "\n[FAIL] 语法分析发现错误: "
                  << parser.getErrorMessage() << '\n';
