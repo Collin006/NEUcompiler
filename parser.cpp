@@ -850,9 +850,9 @@ string Parser::getQuadrupleDump() const {
     ostringstream out;
     out << "===== 四元式 =====\n";
     for (size_t i = 0; i < quadruples_.size(); ++i) {
-        const Quadruple& q = quadruples_[i];
-        out << i << ": (" << q.op << ", " << q.arg1 << ", "
-            << q.arg2 << ", " << q.result << ")\n";
+        const FourTuple& q = quadruples_[i];
+        out << i << ": (" << q.operator_str << ", " << q.first_value << ", "
+            << q.second_value << ", " << q.dist << ")\n";
     }
     if (quadruples_.empty()) {
         out << "(empty)\n";
@@ -901,6 +901,48 @@ string Parser::getSymbolTableDump() const {
             << setw(8) << s.typ << setw(8) << s.cat << setw(16) << s.addr << '\n';
     }
     if (ctx.parambl.empty()) out << "(empty)\n";
+
+    out << "===== 长度表(LENL) =====\n";
+    out << left << setw(6) << "idx" << setw(8) << "length" << '\n';
+    for (size_t i = 0; i < ctx.lenl.size(); ++i) {
+        const LenlItem& l = ctx.lenl[i];
+        out << left << setw(6) << i << setw(8) << l.length << '\n';
+    }
+    if (ctx.lenl.empty()) out << "(empty)\n";
+
+    out << "===== 数组表(AINFL) =====\n";
+    out << left << setw(6) << "idx" << setw(8) << "low"
+        << setw(8) << "up" << setw(8) << "ctp" << setw(8) << "clen" << '\n';
+    for (size_t i = 0; i < ctx.ainfl.size(); ++i) {
+        const AinflItem& a = ctx.ainfl[i];
+        out << left << setw(6) << i << setw(8) << a.low
+            << setw(8) << a.up << setw(8) << a.ctp << setw(8) << a.clen << '\n';
+    }
+    if (ctx.ainfl.empty()) out << "(empty)\n";
+
+    out << "===== 记录表(RINFL) =====\n";
+    out << left << setw(6) << "idx" << setw(24) << "id"
+        << setw(8) << "off" << setw(8) << "tp" << '\n';
+    for (size_t i = 0; i < ctx.rinfl.size(); ++i) {
+        const RinflItem& r = ctx.rinfl[i];
+        out << left << setw(6) << i << setw(24) << r.id
+            << setw(8) << r.off << setw(8) << r.tp << '\n';
+    }
+    if (ctx.rinfl.empty()) out << "(empty)\n";
+
+    out << "===== 常量表(CONSL1) =====\n";
+    out << left << setw(6) << "idx" << setw(16) << "value" << '\n';
+    for (size_t i = 0; i < ctx.consl1.size(); ++i) {
+        out << left << setw(6) << i << setw(16) << ctx.consl1[i] << '\n';
+    }
+    if (ctx.consl1.empty()) out << "(empty)\n";
+
+    out << "===== 常量表(CONSL2) =====\n";
+    out << left << setw(6) << "idx" << setw(16) << "value" << '\n';
+    for (size_t i = 0; i < ctx.consl2.size(); ++i) {
+        out << left << setw(6) << i << setw(16) << ctx.consl2[i] << '\n';
+    }
+    if (ctx.consl2.empty()) out << "(empty)\n";
 
     return out.str();
 }
@@ -996,12 +1038,12 @@ int Parser::emitQuad(const string& op, const string& arg1, const string& arg2, c
 
 void Parser::backpatchQuadResult(int quadIndex, int target) {
     if (quadIndex < 0 || quadIndex >= static_cast<int>(quadruples_.size())) return;
-    quadruples_[quadIndex].result = to_string(target);
+    quadruples_[quadIndex].dist = to_string(target);
 }
 
 void Parser::backpatchQuadResult(int quadIndex, const string& target) {
     if (quadIndex < 0 || quadIndex >= static_cast<int>(quadruples_.size())) return;
-    quadruples_[quadIndex].result = target;
+    quadruples_[quadIndex].dist = target;
 }
 
 void Parser::declarePendingIdentifiers(const string& cat, int typ) {
@@ -2280,8 +2322,8 @@ bool Parser::parseIfStatement() {
         return false;
     }
 
-    /* SEMANTIC: 生成条件跳转四元式（真出口待回填） */
-    int jfalseIndex = emitQuad("jfalse", lastExpressionPlace_, "", "?");
+    /* SEMANTIC: 生成 if 条件四元式（假出口待回填） */
+    int ifIndex = emitQuad("if", lastExpressionPlace_, "", "?");
 
     // then 分支
     if (!parseStatement()) {
@@ -2289,25 +2331,25 @@ bool Parser::parseIfStatement() {
         return false;
     }
 
-    /* SEMANTIC: 回填真出口 / 生成无条件跳转（跳过 else） */
-    int jmpOverElse = -1;
+    /* SEMANTIC: 生成 else 跳转并回填出口 */
+    int elIndex = -1;
 
     // 可选的 else 分支
     if (matchKeyword("else")) {
-        /* SEMANTIC: 处理 else 前的跳转 */
-        jmpOverElse = emitQuad("j", "", "", "?");
-        backpatchQuadResult(jfalseIndex, static_cast<int>(quadruples_.size()));
+        /* SEMANTIC: then 末尾发出 el，并把 if 假出口回填到 else 起点 */
+        elIndex = emitQuad("el", "", "", "?");
+        backpatchQuadResult(ifIndex, static_cast<int>(quadruples_.size()));
 
         if (!parseStatement()) {
             exitRule("if语句", false);
             return false;
         }
 
-        /* SEMANTIC: 回填假出口 */
-        backpatchQuadResult(jmpOverElse, static_cast<int>(quadruples_.size()));
+        int ieIndex = emitQuad("ie", "", "", "");
+        backpatchQuadResult(elIndex, ieIndex);
     } else {
-        /* SEMANTIC: 回填假出口到当前位置 */
-        backpatchQuadResult(jfalseIndex, static_cast<int>(quadruples_.size()));
+        int ieIndex = emitQuad("ie", "", "", "");
+        backpatchQuadResult(ifIndex, ieIndex);
     }
 
     exitRule("if语句", true);
@@ -2323,8 +2365,8 @@ bool Parser::parseWhileStatement() {
         return false;
     }
 
-    /* SEMANTIC: 记录循环起始地址 */
-    int loopBegin = static_cast<int>(quadruples_.size());
+    /* SEMANTIC: while 起始标记 */
+    int whIndex = emitQuad("wh", "", "", "");
 
     if (!parseExpression({"do"})) {
         exitRule("while语句", false);
@@ -2337,17 +2379,17 @@ bool Parser::parseWhileStatement() {
         return false;
     }
 
-    /* SEMANTIC: 生成条件跳转四元式 */
-    int jfalseIndex = emitQuad("jfalse", lastExpressionPlace_, "", "?");
+    /* SEMANTIC: do 记录条件结果，假出口待回填到 we */
+    int doIndex = emitQuad("do", lastExpressionPlace_, "", "?");
 
     if (!parseStatement()) {
         exitRule("while语句", false);
         return false;
     }
 
-    /* SEMANTIC: 生成无条件跳转回循环头 + 回填假出口 */
-    emitQuad("j", "", "", to_string(loopBegin));
-    backpatchQuadResult(jfalseIndex, static_cast<int>(quadruples_.size()));
+    /* SEMANTIC: while 结束标记，并回跳到 wh */
+    int weIndex = emitQuad("we", "", "", to_string(whIndex));
+    backpatchQuadResult(doIndex, weIndex);
 
     exitRule("while语句", true);
     return true;

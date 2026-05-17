@@ -162,14 +162,14 @@ private:
     bool parseType();
 
     // ==================== 语义动作辅助 ====================
-    struct Quadruple {
-        string op;
-        string arg1;
-        string arg2;
-        string result;
+    struct FourTuple {
+        string operator_str;
+        string first_value;
+        string second_value;
+        string dist;
     };
 
-    vector<Quadruple> quadruples_;
+    vector<FourTuple> quadruples_;
     vector<int> pendingIdentifiers_;
     vector<string> pendingActualArgs_;
 

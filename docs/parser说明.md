@@ -58,8 +58,8 @@
 
 - `parseCompoundStatement()`、`parseStatementList()`：解析 `begin ... end` 及语句序列。  
 - `parseStatement()`：语句分发入口。  
-- `parseIfStatement()`：解析 `if-then-else`，生成条件跳转并回填。  
-- `parseWhileStatement()`：解析 `while-do`，生成循环跳转四元式。  
+- `parseIfStatement()`：解析 `if-then-else`，生成 `if/el/ie` 控制流四元式并回填。  
+- `parseWhileStatement()`：解析 `while-do`，生成 `wh/do/we` 循环控制四元式。  
 - `parseAssignOrCallStatement()`：统一处理“赋值语句 / 过程调用语句”。  
 - `parseCallSuffix()`、`parseActualParameterList()`、`parseActualParameterListTail()`：解析调用括号和实参列表。
 
@@ -102,4 +102,3 @@
 4. 语句阶段（赋值、调用、if、while、复合语句）
 5. 表达式阶段由 `parseExpression()` 交给 LR(1)
 6. 汇总日志、符号表和四元式输出
-
