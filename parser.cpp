@@ -2366,7 +2366,7 @@ bool Parser::parseWhileStatement() {
     }
 
     /* SEMANTIC: while 起始标记 */
-    emitQuad("wh", "", "", "");
+    int whIndex = emitQuad("wh", "", "", "");
 
     if (!parseExpression({"do"})) {
         exitRule("while语句", false);
@@ -2379,16 +2379,17 @@ bool Parser::parseWhileStatement() {
         return false;
     }
 
-    /* SEMANTIC: do 记录条件结果 */
-    emitQuad("do", lastExpressionPlace_, "", "");
+    /* SEMANTIC: do 记录条件结果，假出口待回填到 we */
+    int doIndex = emitQuad("do", lastExpressionPlace_, "", "?");
 
     if (!parseStatement()) {
         exitRule("while语句", false);
         return false;
     }
 
-    /* SEMANTIC: while 结束标记 */
-    emitQuad("we", "", "", "");
+    /* SEMANTIC: while 结束标记，并回跳到 wh */
+    int weIndex = emitQuad("we", "", "", to_string(whIndex));
+    backpatchQuadResult(doIndex, weIndex);
 
     exitRule("while语句", true);
     return true;
