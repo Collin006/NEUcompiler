@@ -902,6 +902,48 @@ string Parser::getSymbolTableDump() const {
     }
     if (ctx.parambl.empty()) out << "(empty)\n";
 
+    out << "===== 长度表(LENL) =====\n";
+    out << left << setw(6) << "idx" << setw(8) << "length" << '\n';
+    for (size_t i = 0; i < ctx.lenl.size(); ++i) {
+        const LenlItem& l = ctx.lenl[i];
+        out << left << setw(6) << i << setw(8) << l.length << '\n';
+    }
+    if (ctx.lenl.empty()) out << "(empty)\n";
+
+    out << "===== 数组表(AINFL) =====\n";
+    out << left << setw(6) << "idx" << setw(8) << "low"
+        << setw(8) << "up" << setw(8) << "ctp" << setw(8) << "clen" << '\n';
+    for (size_t i = 0; i < ctx.ainfl.size(); ++i) {
+        const AinflItem& a = ctx.ainfl[i];
+        out << left << setw(6) << i << setw(8) << a.low
+            << setw(8) << a.up << setw(8) << a.ctp << setw(8) << a.clen << '\n';
+    }
+    if (ctx.ainfl.empty()) out << "(empty)\n";
+
+    out << "===== 记录表(RINFL) =====\n";
+    out << left << setw(6) << "idx" << setw(24) << "id"
+        << setw(8) << "off" << setw(8) << "tp" << '\n';
+    for (size_t i = 0; i < ctx.rinfl.size(); ++i) {
+        const RinflItem& r = ctx.rinfl[i];
+        out << left << setw(6) << i << setw(24) << r.id
+            << setw(8) << r.off << setw(8) << r.tp << '\n';
+    }
+    if (ctx.rinfl.empty()) out << "(empty)\n";
+
+    out << "===== 常量表(CONSL1) =====\n";
+    out << left << setw(6) << "idx" << setw(16) << "value" << '\n';
+    for (size_t i = 0; i < ctx.consl1.size(); ++i) {
+        out << left << setw(6) << i << setw(16) << ctx.consl1[i] << '\n';
+    }
+    if (ctx.consl1.empty()) out << "(empty)\n";
+
+    out << "===== 常量表(CONSL2) =====\n";
+    out << left << setw(6) << "idx" << setw(16) << "value" << '\n';
+    for (size_t i = 0; i < ctx.consl2.size(); ++i) {
+        out << left << setw(6) << i << setw(16) << ctx.consl2[i] << '\n';
+    }
+    if (ctx.consl2.empty()) out << "(empty)\n";
+
     return out.str();
 }
 
