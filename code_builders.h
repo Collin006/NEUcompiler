@@ -74,7 +74,7 @@ struct Operand
  */
 struct Lable
 {
-    int position; // 标签的OBJ索引
+    int position = no_position; // 标签的OBJ索引
     std::stack<int> backpatch; // 记录了所有引用了Lable,但尚未回填的目标代码索引
 };
 

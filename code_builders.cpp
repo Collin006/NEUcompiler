@@ -76,6 +76,7 @@ Operators CodeBuilder::ScanOperator(const std::string &operator_str)
     {
         return Operators::NOT;
     }
+    return static_cast<Operators>(-1);
 }
 
 /**
@@ -121,13 +122,81 @@ std::string CodeBuilder::GetOperateCommand(Operators op)
 
 void CodeBuilder::BuildTokens()
 {
-    for (int i = 0; i < QT.size(); i++)
+    for (size_t i = 0; i < QT.size(); i++)
     {
-        // 1.扫描操作指令
-        Operators op = ScanOperator(QT[i].operator_str);
-        switch (op)
+        const auto &ft = QT[i];
+        const std::string &op = ft.operator_str;
+
+        if (op == "+" || op == "-" || op == "*" || op == "/" ||
+            op == "<" || op == ">" || op == "==" || op == "<=" || op == ">=" || op == "!=" ||
+            op == "&&" || op == "||" || op == "!")
         {
-        case Operators::ADD:
+            BuildTwoOperandsToken(static_cast<int>(i), ft);
+        }
+        else if (op == ":=")
+        {
+            std::string RDL_name = RDL;
+            if (RDL_name != null_value && RDL_name != ft.first_value.value && ActiveRecord[i][RDL_name] == true)
+            {
+                Operand router = {DistType::Router, "R"};
+                Operand dist = {DistType::Memory, RDL_name};
+                code_index = OBJ.size();
+                OBJ.push_back({code_index, "ST", router, dist});
+            }
+
+            if (RDL_name != ft.first_value.value)
+            {
+                Operand router = {DistType::Router, "R"};
+                Operand source;
+                if (ft.first_value.active == is_constant)
+                {
+                    source = {DistType::Constant, ft.first_value.value};
+                }
+                else
+                {
+                    source = {DistType::Memory, ft.first_value.value};
+                }
+                code_index = OBJ.size();
+                OBJ.push_back({code_index, "LD", router, source});
+            }
+
+            Operand router = {DistType::Router, "R"};
+            Operand dist = {DistType::Memory, ft.dist.value};
+            code_index = OBJ.size();
+            OBJ.push_back({code_index, "ST", router, dist});
+            RDL = ft.dist.value;
+        }
+        else if (op == "if")
+        {
+            BuildIfToken(static_cast<int>(i), ft);
+        }
+        else if (op == "el")
+        {
+            BuildElseToken(static_cast<int>(i), ft);
+        }
+        else if (op == "ie")
+        {
+            BuildIfEndToken(static_cast<int>(i), ft);
+        }
+        else if (op == "wh")
+        {
+            BuildWhileToken(static_cast<int>(i), ft);
+        }
+        else if (op == "do")
+        {
+            BuildDoToken(static_cast<int>(i), ft);
+        }
+        else if (op == "we")
+        {
+            BuildWhileEndToken(static_cast<int>(i), ft);
+        }
+        else if (op == "goto")
+        {
+            BuildGotoToken(static_cast<int>(i), ft);
+        }
+        else if (op == "lb")
+        {
+            BuildLabelToken(static_cast<int>(i), ft);
         }
     }
 }
@@ -411,7 +480,7 @@ void CodeBuilder::BuildWhileEndToken(const int &index, const MarkedFourTuple &ft
 void CodeBuilder::BuildLabelToken(const int &index, const MarkedFourTuple &ft)
 {
     std::string lable_name = ft.dist.value;
-    auto info = Lables[lable_name];
+    auto &info = Lables[lable_name];
 
     if(info.position != no_position)
     {
@@ -437,7 +506,7 @@ void CodeBuilder::BuildLabelToken(const int &index, const MarkedFourTuple &ft)
 void CodeBuilder::BuildGotoToken(const int &index, const MarkedFourTuple &ft)
 {
     std::string lable_name = ft.dist.value;
-    auto info = Lables[lable_name];
+    auto &info = Lables[lable_name];
     code_index = OBJ.size();
 
     Operand none = {DistType::None, "_"}; // 无操作数
@@ -448,7 +517,7 @@ void CodeBuilder::BuildGotoToken(const int &index, const MarkedFourTuple &ft)
     if(info.position == no_position)
     {
         //标签未定义，加入回填队列
-        info.backpatch.push(index);
+        info.backpatch.push(code_index);
     } 
     else {
         // 标签已经存在
