@@ -6,6 +6,7 @@
 #include <sstream>
 #include "global.h"
 #include "synbl.h"
+#include "four_tuple.h"
 
 using namespace std;
 
@@ -51,6 +52,8 @@ public:
 
     // 获取四元式输出文本
     string getQuadrupleDump() const;
+    const vector<FourTuple>& getQuadruples() const;
+    void setQuadruples(const vector<FourTuple>& quadruples);
 
     // 获取符号表输出文本
     string getSymbolTableDump() const;
@@ -162,13 +165,6 @@ private:
     bool parseType();
 
     // ==================== 语义动作辅助 ====================
-    struct FourTuple {
-        string operator_str;
-        string first_value;
-        string second_value;
-        string dist;
-    };
-
     vector<FourTuple> quadruples_;
     vector<int> pendingIdentifiers_;
     vector<string> pendingActualArgs_;
