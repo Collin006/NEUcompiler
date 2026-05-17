@@ -1,3 +1,13 @@
+// ============================================================
+// Parser 实现文件
+//
+// 核心职责：
+//   1. LR(1) 分析表的自动构建（FIRST集、标准族、ACTION/GOTO表）
+//   2. 表达式语法分析（纯语法校验）
+//   3. 递归下降语法分析器（处理程序、声明、语句等）
+//   4. 语义动作（符号表填表、四元式生成）
+//   5. 错误恢复与详细日志输出
+// ============================================================
 #include "parser.h"
 #include <stdexcept>
 #include <algorithm>
@@ -11,25 +21,36 @@
 
 namespace {
 
-const string EPSILON = "ε";
-const int INVALID_TYPE_INDEX = -1;
+// ============================================================
+// 全局常量
+// ============================================================
+const string EPSILON = "ε";              // 空产生式标记
+const int INVALID_TYPE_INDEX = -1;       // 无效类型索引标记
 
+// ============================================================
+// 产生式结构体
+// ============================================================
 struct Production {
-    string lhs;
-    vector<string> rhs;
+    string lhs;                           // 左侧非终结符
+    vector<string> rhs;                   // 右侧符号序列（可能为空表示 ε）
 };
 
+// ============================================================
+// LR(1) 项结构体
+// ============================================================
 struct LR1Item {
-    int productionIndex;
-    int dotPos;
-    string lookahead;
+    int productionIndex;                  // 产生式编号
+    int dotPos;                           // 圆点位置（0 到 RHS 长度）
+    string lookahead;                     // 前瞻符号
 
+    // 相等性判断：三个字段都相等才认为项相同
     bool operator==(const LR1Item& other) const {
         return productionIndex == other.productionIndex &&
                dotPos == other.dotPos &&
                lookahead == other.lookahead;
     }
 
+    // 偏序关系（用于 set 容器自动排序）
     bool operator<(const LR1Item& other) const {
         if (productionIndex != other.productionIndex) return productionIndex < other.productionIndex;
         if (dotPos != other.dotPos) return dotPos < other.dotPos;
@@ -37,30 +58,39 @@ struct LR1Item {
     }
 };
 
+// ============================================================
+// LR(1) 动作结构体
+// ============================================================
 struct LRAction {
     enum Type { Error, Shift, Reduce, Accept } type = Error;
-    int value = -1; // Shift: state, Reduce: productionIndex
+    int value = -1;                       // Shift 时为状态号，Reduce 时为产生式编号
 };
 
 // ============================================================
-// 语义值 —— 表达式分析过程中传递的中间结果
-// Shift 时记录终结符的原文和行号
-// Reduce 时由回调生成非终结符的语义值
-// 语义分析/代码生成阶段：替换 ReduceCallback 为四元式生成逻辑即可
+// 语义值结构体 —— 表达式分析过程中传递的中间结果
+//
+// Shift 时：从终结符 token 创建，记录源文本和行号
+// Reduce 时：由规约回调生成，记录规约结果的中间表示（如临时变量名）
+//
+// 使用 typedef ReduceCallback 传入回调来实现语义动作
 // ============================================================
 struct SemanticValue {
-    string symbol;   // 文法符号名（终结符如 "id"/"+", 非终结符如 "Expr"）
-    string text;     // 终结符的原文（标识符名/常量值），非终结符由规约生成
-    int    line;     // 所在行号
-    int    typ = INVALID_TYPE_INDEX;
-    bool isCall = false;
-    vector<string> args;
+    string symbol;                        // 文法符号名（终结符如 "id"、"+", 非终结符如 "Expr"）
+    string text;                          // 终结符的原文（标识符名、常量值等），非终结符由规约生成得出
+    int    line;                          // 所在源代码行号
+    int    typ = INVALID_TYPE_INDEX;      // 类型索引（用于类型检查）
+    bool isCall = false;                  // 标记是否为函数调用
+    vector<string> args;                  // 若为函数调用，存储实参列表
 };
 
+//  确保内置类型在 TYPEL 表中存在（若不存在则插入）
+// 参数：tval - 类型值字符串（如 "i"、"r" 等）
+// 返回：类型在 TYPEL 中的索引
 int ensureBuiltinTypeShared(const string& tval) {
     for (int i = 0; i < static_cast<int>(ctx.typel.size()); ++i) {
         if (ctx.typel[i].tval == tval) return i;
     }
+    // 不存在则新增
     TypelItem item;
     item.tval = tval;
     item.tpoint = -1;
@@ -71,12 +101,23 @@ int ensureBuiltinTypeShared(const string& tval) {
     return static_cast<int>(ctx.typel.size()) - 1;
 }
 
-// 规约回调：产生式编号、LHS、RHS 值列表 → 规约结果
+// ============================================================
+// 规约回调函数类型定义
+//
+// 参数：
+//   - prodIndex：产生式编号
+//   - lhs：左侧非终结符名
+//   - rhs：右侧各符号的语义值列表（按顺序）
+// 返回：规约结果的语义值
+//
 // 传入 nullptr 时使用默认行为（仅透传符号名，不做语义分析）
+// ============================================================
 using ReduceCallback = std::function<SemanticValue(
     int prodIndex, const std::string& lhs, const std::vector<SemanticValue>& rhs)>;
 
-// 文法符号名 → 中文翻译（用于日志输出）
+// ============================================================
+// 文法符号名 → 中文翻译（用于日志输出，便于调试）
+// ============================================================
 string symbolToChinese(const string& sym) {
     static const map<string, string> trans = {
         {"Expr", "表达式"}, {"BoolExpr", "布尔表达式"}, {"BoolTerm", "布尔项"},
@@ -92,20 +133,39 @@ string symbolToChinese(const string& sym) {
     return it != trans.end() ? it->second : sym;
 }
 
+// ============================================================
+// ExpressionLR1Builder —— 表达式文法的 LR(1) 分析器构建类
+//
+// 职责：
+//   1. 初始化表达式文法（包括算术、关系、逻辑运算等）
+//   2. 自动计算 FIRST 集合
+//   3. 构建 LR(1) 标准族（所有可达状态）
+//   4. 生成 ACTION 和 GOTO 分析表
+//   5. 完成表达式语法分析（带或不带语义动作）
+// ============================================================
 class ExpressionLR1Builder {
 public:
+    // 构造函数：一次性完成所有初始化和表格构建
     ExpressionLR1Builder() {
         initGrammar();
+        // 依次执行：初始化文法 → 计算FIRST集 → 构建标准族 → 生成分析表 → 计算SELECT集
         buildOk_ = computeFirstSets() && buildCanonicalCollection() && buildParsingTable();
         if (buildOk_) {
             computeSelectSets();
         }
     }
 
+    // 查询构建是否成功
     bool isBuildOk() const { return buildOk_; }
+
+    // 获取构建失败时的错误信息
     string buildError() const { return buildError_; }
 
-    // 表达式语法分析（纯语法校验，保留旧接口兼容）
+    // ========== 纯语法分析接口（无语义动作） ==========
+    //
+    // 参数：inputSymbols - 输入符号序列（通常来自词法分析）
+    // 输出：errorMsg - 若分析失败，填充错误消息
+    // 返回：true 表示符合文法，false 表示有语法错误
     bool parse(const vector<string>& inputSymbols, string& errorMsg) const {
         vector<SemanticValue> dummyValues;
         dummyValues.reserve(inputSymbols.size());
@@ -118,23 +178,31 @@ public:
         return parse(dummyValues, errorMsg, nullptr);
     }
 
-    // 表达式语法分析 + 语义值传递
-    // onReduce: 每次规约时调用，传入产生式编号、LHS、RHS 值列表，返回规约结果
-    //           传 nullptr 则使用默认行为（仅透传符号名）
-    // lrLog:    非空时输出每次 Shift/Reduce/Accept 的详细日志
+    // ========== 表达式语法分析 + 语义值传递 ==========
+    //
+    // 参数：
+    //   inputValues   - 输入的语义值序列（每个元素包含符号和原文）
+    //   errorMsg      - 分析失败时的错误消息
+    //   onReduce      - 每次规约时的回调（可为 nullptr 使用默认行为）
+    //   lrLog         - 若提供，输出详细的 Shift/Reduce/Accept 日志
+    //   acceptValue   - 若提供，保存最终的接受状态的语义值
+    //
+    // 返回：true 表示分析成功，false 表示有语法错误
     bool parse(const vector<SemanticValue>& inputValues, string& errorMsg,
                const ReduceCallback& onReduce, ostream* lrLog = nullptr,
                SemanticValue* acceptValue = nullptr) const {
+        // ========== 初始化栈式 LR 分析机 ==========
         vector<int> stateStack;
-        vector<SemanticValue> valueStack;  // 语义值栈，与状态栈同步
-        stateStack.push_back(0);
-        // 初始压入空值占位（状态栈从 0 开始，值栈对齐）
+        vector<SemanticValue> valueStack;      // 语义值栈，与状态栈 1:1 对应
+        stateStack.push_back(0);                // 初始状态为 0
+
+        // 初始压入一个虚拟占位值，使状态栈和值栈对齐
         SemanticValue initVal;
         initVal.symbol = "$";
         valueStack.push_back(initVal);
-        size_t ip = 0;
+        size_t ip = 0;                          // 当前输入指针
 
-        // 默认回调：仅记录符号名，不做语义分析
+        // 默认规约回调：仅透传符号名，无语义分析
         auto defaultReduce = [](int /*prodIndex*/, const string& lhs,
                                 const vector<SemanticValue>& /*rhs*/) -> SemanticValue {
             SemanticValue result;
@@ -144,13 +212,15 @@ public:
 
         const ReduceCallback& reduce = onReduce ? onReduce : defaultReduce;
 
+        // ========== 主分析循环 ==========
         while (true) {
-            int state = stateStack.back();
-            string lookahead = (ip < inputValues.size()) ? inputValues[ip].symbol : "$";
-            LRAction action = getAction(state, lookahead);
+            int state = stateStack.back();                          // 当前状态
+            string lookahead = (ip < inputValues.size()) ? inputValues[ip].symbol : "$";  // 前瞻符号或 EOF
+            LRAction action = getAction(state, lookahead);           // 查表获得下一步动作
 
+            // ========== SHIFT 动作 ==========
             if (action.type == LRAction::Shift) {
-                stateStack.push_back(action.value);
+                stateStack.push_back(action.value);                  // 压入新状态
                 if (lrLog) {
                     const SemanticValue& val = inputValues[ip];
                     *lrLog << "  [LR] Shift  " << symbolToChinese(val.symbol);
@@ -158,15 +228,16 @@ public:
                         *lrLog << " (\"" << val.text << "\")";
                     *lrLog << "  → state " << action.value << "\n";
                 }
-                valueStack.push_back(inputValues[ip]);  // 语义值入栈
+                valueStack.push_back(inputValues[ip]);              // 压入语义值
                 ip++;
                 continue;
             }
 
+            // ========== REDUCE 动作 ==========
             if (action.type == LRAction::Reduce) {
-                const Production& p = productions_[action.value];
+                const Production& p = productions_[action.value];   // 取出产生式
 
-                // 从语义值栈弹出 |RHS| 个值
+                // 从栈中弹出 |RHS| 个状态和语义值
                 vector<SemanticValue> rhsValues;
                 rhsValues.reserve(p.rhs.size());
                 for (size_t i = 0; i < p.rhs.size(); ++i) {
@@ -178,7 +249,7 @@ public:
                     rhsValues.push_back(valueStack.back());
                     valueStack.pop_back();
                 }
-                // RHS 是倒序弹出的，翻转恢复原始顺序
+                // RHS 是倒序弹出的，需要翻转恢复原始顺序
                 reverse(rhsValues.begin(), rhsValues.end());
 
                 if (stateStack.empty()) {
@@ -186,12 +257,21 @@ public:
                     return false;
                 }
 
-                /* SEMANTIC: 规约回调 —— 在此生成四元式
-                   调用 reduce(prodIndex, p.lhs, rhsValues)
-                   返回的 SemanticValue 压入值栈
-                   例如：P17 (ArithExpr → ArithExpr + Term)
-                     rhsValues = [ArithExpr(a), +, Term(b)]
-                     reduce 应返回 ArithExpr(t1)，并生成四元式 (+, a, b, t1)
+                /* ========== 语义动作：规约回调 ==========
+
+                   在此处调用规约回调来生成四元式或其他中间代码。
+                   回调接收：
+                     - 产生式编号（action.value）
+                     - LHS 非终结符名（p.lhs）
+                     - 右侧各符号的语义值列表（rhsValues）
+
+                   规约回调应返回 LHS 对应的新语义值。
+
+                   例子：产生式 P17: ArithExpr → ArithExpr + Term
+                     rhsValues = [ArithExpr(@a), Token(+), Term(@b)]
+                     规约回调计算得出：t1 = a + b
+                     生成四元式：(+, a, b, t1)
+                     返回语义值：SemanticValue(symbol="ArithExpr", text="t1")
                 */
                 if (lrLog) {
                     *lrLog << "  [LR] Reduce P" << action.value << ": "
@@ -203,6 +283,7 @@ public:
                 SemanticValue result = reduce(action.value, p.lhs, rhsValues);
                 valueStack.push_back(result);
 
+                // 查 GOTO 表：从规约前的状态通过 LHS 转移到新状态
                 int fromState = stateStack.back();
                 auto gIt = gotoTable_.find({fromState, p.lhs});
                 if (gIt == gotoTable_.end()) {
@@ -213,19 +294,21 @@ public:
                 continue;
             }
 
+            // ========== ACCEPT 动作 ==========
             if (action.type == LRAction::Accept) {
                 if (ip != inputValues.size()) {
                     errorMsg = "表达式未完全消耗";
                     return false;
                 }
                 if (lrLog) *lrLog << "  [LR] Accept  (表达式分析成功)\n";
-                // 顶层规约结果的语义值在 valueStack.top()
+                // 保存顶层规约结果的语义值
                 if (acceptValue && !valueStack.empty()) {
                     *acceptValue = valueStack.back();
                 }
                 return true;
             }
 
+            // ========== 错误处理 ==========
             errorMsg = "无法在状态 " + to_string(state) + " 处理符号 '" + lookahead + "'";
             vector<string> expected = expectedTerminals(state);
             if (!expected.empty()) {
@@ -239,6 +322,14 @@ public:
         }
     }
 
+    // ========== 诊断输出方法：导出 SELECT 集与 LR(1) 分析表 ==========
+    //
+    // 返回包含以下内容的文本：
+    //   - 所有非ε产生式的 SELECT 集（用于递归下降分析的分支选择）
+    //   - ACTION 表（Shift/Reduce/Accept 的最终分析决策）
+    //   - GOTO 表（规约后的状态转移）
+    //
+    // 主要用于调试和验证 LR(1) 构建的正确性
     string dumpSelectAndTable() const {
         ostringstream out;
         out << "===== 表达式文法 SELECT 集（自动构建） =====\n";
@@ -289,40 +380,55 @@ public:
     }
 
 private:
-    string startSymbol_ = "Expr";
-    string startPrime_ = "Expr'";
+    // ========== 数据成员 ==========
+    string startSymbol_ = "Expr";          // 文法起始符号
+    string startPrime_ = "Expr'";          // 增广文法的起始符号（E' → E）
 
-    vector<Production> productions_;
-    set<string> nonTerminals_;
-    set<string> terminals_;
+    vector<Production> productions_;       // 所有产生式（包括增广）
+    set<string> nonTerminals_;             // 所有非终结符
+    set<string> terminals_;                // 所有终结符
 
-    map<string, set<string>> firstSets_;
+    map<string, set<string>> firstSets_;   // 每个符号的 FIRST 集
 
-    vector<set<LR1Item>> states_;
-    map<pair<int, string>, int> transitions_;
-    map<pair<int, string>, LRAction> actionTable_;
-    map<pair<int, string>, int> gotoTable_;
-    map<int, set<string>> selectSets_;
+    vector<set<LR1Item>> states_;          // LR(1) 标准族的所有状态
+    map<pair<int, string>, int> transitions_;  // 转移函数
+    map<pair<int, string>, LRAction> actionTable_;  // ACTION 表：状态+终结符 → 动作
+    map<pair<int, string>, int> gotoTable_;        // GOTO 表：状态+非终结符 → 新状态
+    map<int, set<string>> selectSets_;    // 每条产生式的 SELECT 集
 
-    vector<string> orderedTerminalsWithEnd_;
-    vector<string> orderedNonTerminals_;
+    vector<string> orderedTerminalsWithEnd_;  // 有序终结符列表（含 $）
+    vector<string> orderedNonTerminals_;      // 有序非终结符列表
 
-    bool buildOk_ = false;
-    string buildError_;
+    bool buildOk_ = false;                 // 构建是否成功
+    string buildError_;                    // 构建错误消息
 
 private:
+    // ========== 初始化：定义表达式文法 ==========
+    //
+    // 定义的文法包括：
+    //   - 布尔表达式（逻辑或、逻辑与）
+    //   - 关系表达式（< > <= >= = <>）
+    //   - 算术表达式（+ - * /）
+    //   - 因子（标识符、常量、括号、一元负号、函数调用）
     void initGrammar() {
-        // 增广文法
+        // 增广文法：E' → E （用于 LR 自动机的接受态）
         productions_.push_back({startPrime_, {startSymbol_}});
 
-        // 形式化表达式文法
+        // 形式化表达式文法（根据优先级从低到高排序）
+        // 第一优先级：逻辑或（||）
         productions_.push_back({"Expr", {"BoolExpr"}});
         productions_.push_back({"BoolExpr", {"BoolExpr", "||", "BoolTerm"}});
+
+        // 第二优先级：逻辑与（&&）
         productions_.push_back({"BoolExpr", {"BoolTerm"}});
         productions_.push_back({"BoolTerm", {"BoolTerm", "&&", "BoolFactor"}});
+
+        // 第三优先级：逻辑非（!）、关系表达式
         productions_.push_back({"BoolTerm", {"BoolFactor"}});
         productions_.push_back({"BoolFactor", {"!", "BoolFactor"}});
         productions_.push_back({"BoolFactor", {"RelExpr"}});
+
+        // 第四优先级：关系运算符（<、>、<=、>=、=、<>）
         productions_.push_back({"RelExpr", {"ArithExpr", "RelOp", "ArithExpr"}});
         productions_.push_back({"RelExpr", {"ArithExpr"}});
         productions_.push_back({"RelOp", {">"}});
@@ -331,27 +437,38 @@ private:
         productions_.push_back({"RelOp", {"<="}});
         productions_.push_back({"RelOp", {"="}});
         productions_.push_back({"RelOp", {"<>"}});
+
+        // 第五优先级：加减法（+ -）
         productions_.push_back({"ArithExpr", {"ArithExpr", "+", "Term"}});
         productions_.push_back({"ArithExpr", {"ArithExpr", "-", "Term"}});
         productions_.push_back({"ArithExpr", {"Term"}});
+
+        // 第六优先级：乘除法（* /）
         productions_.push_back({"Term", {"Term", "*", "Factor"}});
         productions_.push_back({"Term", {"Term", "/", "Factor"}});
         productions_.push_back({"Term", {"Factor"}});
-        productions_.push_back({"Factor", {"id", "CallSuffix"}});
-        productions_.push_back({"Factor", {"int"}});
-        productions_.push_back({"Factor", {"real"}});
-        productions_.push_back({"Factor", {"string_lit"}});
-        productions_.push_back({"Factor", {"true"}});
-        productions_.push_back({"Factor", {"false"}});
-        productions_.push_back({"Factor", {"(", "Expr", ")"}});
-        productions_.push_back({"Factor", {"-", "Factor"}});
-        productions_.push_back({"CallSuffix", {"(", "ActualParamList", ")"}});
-        productions_.push_back({"CallSuffix", {}}); // ε
-        productions_.push_back({"ActualParamList", {"Expr", "ActualParamListTail"}});
-        productions_.push_back({"ActualParamList", {}}); // ε
-        productions_.push_back({"ActualParamListTail", {",", "Expr", "ActualParamListTail"}});
-        productions_.push_back({"ActualParamListTail", {}}); // ε
 
+        // 第七优先级：因子（最高，包括常量、标识符、括号、一元操作等）
+        productions_.push_back({"Factor", {"id", "CallSuffix"}});  // id 或 函数调用
+        productions_.push_back({"Factor", {"int"}});               // 整数常量
+        productions_.push_back({"Factor", {"real"}});              // 实数常量
+        productions_.push_back({"Factor", {"string_lit"}});        // 字符串常量
+        productions_.push_back({"Factor", {"true"}});              // 布尔常量
+        productions_.push_back({"Factor", {"false"}});             // 布尔常量
+        productions_.push_back({"Factor", {"(", "Expr", ")"}});    // 括号表达式
+        productions_.push_back({"Factor", {"-", "Factor"}});       // 一元负号
+
+        // 函数调用后缀
+        productions_.push_back({"CallSuffix", {"(", "ActualParamList", ")"}});  // 有实参
+        productions_.push_back({"CallSuffix", {}});                              // ε（无实参）
+
+        // 实参表列表
+        productions_.push_back({"ActualParamList", {"Expr", "ActualParamListTail"}});
+        productions_.push_back({"ActualParamList", {}});            // ε
+        productions_.push_back({"ActualParamListTail", {",", "Expr", "ActualParamListTail"}});
+        productions_.push_back({"ActualParamListTail", {}});         // ε
+
+        // 收集非终结符和终结符
         for (const Production& p : productions_) {
             nonTerminals_.insert(p.lhs);
         }
@@ -364,9 +481,10 @@ private:
             }
         }
 
+        // 建立有序同步集
         orderedNonTerminals_.assign(nonTerminals_.begin(), nonTerminals_.end());
         orderedTerminalsWithEnd_.assign(terminals_.begin(), terminals_.end());
-        orderedTerminalsWithEnd_.push_back("$");
+        orderedTerminalsWithEnd_.push_back("$");  // 添加 EOF 标记
     }
 
     bool isTerminal(const string& sym) const {
@@ -1106,13 +1224,21 @@ int Parser::currentLine() const {
 }
 
 // ============================================================
-// Token 匹配
+// Token 类型与关键字匹配
 // ============================================================
 
+// 检查当前 token 类型是否匹配
+//
+// 参数：type - 期望的 token 类型（如 "ID"、"INT"、"REAL" 等）
+// 返回：true 若当前 token 类型匹配，false 否则
 bool Parser::checkType(const string& type) const {
     return !isAtEnd() && current().type == type;
 }
 
+// 检查并消耗指定 token 类型
+//
+// 参数：type - 期望的 token 类型
+// 返回：true 若匹配成功并消耗，false 若不匹配
 bool Parser::matchType(const string& type) {
     if (checkType(type)) {
         logMatch(advance());
@@ -1121,6 +1247,11 @@ bool Parser::matchType(const string& type) {
     return false;
 }
 
+// 检查当前 token 是否为指定关键字
+//
+// 关键字存储在全局 ctx.keywordTable 中，token.value 是索引值
+// 参数：kw - 期望的关键字（如 "if"、"while"、"var" 等）
+// 返回：true 若当前 token 是该关键字，false 否则
 bool Parser::checkKeyword(const string& kw) const {
     if (isAtEnd()) return false;
     Token t = current();
@@ -1130,6 +1261,10 @@ bool Parser::checkKeyword(const string& kw) const {
     return ctx.keywordTable[idx] == kw;
 }
 
+// 检查并消耗指定关键字
+//
+// 参数：kw - 期望的关键字
+// 返回：true 若匹配成功并消耗，false 若不匹配
 bool Parser::matchKeyword(const string& kw) {
     if (checkKeyword(kw)) {
         logMatch(advance());
@@ -1138,6 +1273,11 @@ bool Parser::matchKeyword(const string& kw) {
     return false;
 }
 
+// 检查当前 token 是否为指定分隔符/操作符
+//
+// 分隔符存储在全局 ctx.delimiterTable 中，token.value 是索引值
+// 参数：delim - 期望的分隔符/操作符（如 "("、"+"、";" 等）
+// 返回：true 若当前 token 是该分隔符，false 否则
 bool Parser::checkDelimiter(const string& delim) const {
     if (isAtEnd()) return false;
     Token t = current();
@@ -1147,6 +1287,10 @@ bool Parser::checkDelimiter(const string& delim) const {
     return ctx.delimiterTable[idx] == delim;
 }
 
+// 检查并消耗指定分隔符/操作符
+//
+// 参数：delim - 期望的分隔符/操作符
+// 返回：true 若匹配成功并消耗，false 若不匹配
 bool Parser::matchDelimiter(const string& delim) {
     if (checkDelimiter(delim)) {
         logMatch(advance());
@@ -1155,10 +1299,14 @@ bool Parser::matchDelimiter(const string& delim) {
     return false;
 }
 
+// 检查当前 token 是否为标识符
 bool Parser::checkId() const {
     return !isAtEnd() && current().type == "ID";
 }
 
+// 检查并消耗标识符
+//
+// 返回：true 若当前 token 是标识符并成功消耗，false 否则
 bool Parser::matchId() {
     if (checkId()) {
         logMatch(advance());
