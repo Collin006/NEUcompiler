@@ -2322,8 +2322,8 @@ bool Parser::parseIfStatement() {
         return false;
     }
 
-    /* SEMANTIC: 生成条件跳转四元式（真出口待回填） */
-    int jfalseIndex = emitQuad("jfalse", lastExpressionPlace_, "", "?");
+    /* SEMANTIC: 生成 if 条件四元式（假出口待回填） */
+    int ifIndex = emitQuad("if", lastExpressionPlace_, "", "?");
 
     // then 分支
     if (!parseStatement()) {
@@ -2331,25 +2331,25 @@ bool Parser::parseIfStatement() {
         return false;
     }
 
-    /* SEMANTIC: 回填真出口 / 生成无条件跳转（跳过 else） */
-    int jmpOverElse = -1;
+    /* SEMANTIC: 生成 else 跳转并回填出口 */
+    int elIndex = -1;
 
     // 可选的 else 分支
     if (matchKeyword("else")) {
-        /* SEMANTIC: 处理 else 前的跳转 */
-        jmpOverElse = emitQuad("j", "", "", "?");
-        backpatchQuadResult(jfalseIndex, static_cast<int>(quadruples_.size()));
+        /* SEMANTIC: then 末尾发出 el，并把 if 假出口回填到 else 起点 */
+        elIndex = emitQuad("el", "", "", "?");
+        backpatchQuadResult(ifIndex, static_cast<int>(quadruples_.size()));
 
         if (!parseStatement()) {
             exitRule("if语句", false);
             return false;
         }
 
-        /* SEMANTIC: 回填假出口 */
-        backpatchQuadResult(jmpOverElse, static_cast<int>(quadruples_.size()));
+        int ieIndex = emitQuad("ie", "", "", "");
+        backpatchQuadResult(elIndex, ieIndex);
     } else {
-        /* SEMANTIC: 回填假出口到当前位置 */
-        backpatchQuadResult(jfalseIndex, static_cast<int>(quadruples_.size()));
+        int ieIndex = emitQuad("ie", "", "", "");
+        backpatchQuadResult(ifIndex, ieIndex);
     }
 
     exitRule("if语句", true);
@@ -2379,17 +2379,18 @@ bool Parser::parseWhileStatement() {
         return false;
     }
 
-    /* SEMANTIC: 生成条件跳转四元式 */
-    int jfalseIndex = emitQuad("jfalse", lastExpressionPlace_, "", "?");
+    /* SEMANTIC: 生成 while 条件四元式（假出口待回填） */
+    int whIndex = emitQuad("wh", lastExpressionPlace_, "", "?");
 
     if (!parseStatement()) {
         exitRule("while语句", false);
         return false;
     }
 
-    /* SEMANTIC: 生成无条件跳转回循环头 + 回填假出口 */
-    emitQuad("j", "", "", to_string(loopBegin));
-    backpatchQuadResult(jfalseIndex, static_cast<int>(quadruples_.size()));
+    /* SEMANTIC: do 回跳循环头，we 作为循环结束标记 */
+    emitQuad("do", "", "", to_string(loopBegin));
+    int weIndex = emitQuad("we", "", "", "");
+    backpatchQuadResult(whIndex, weIndex);
 
     exitRule("while语句", true);
     return true;
