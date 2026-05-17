@@ -850,9 +850,9 @@ string Parser::getQuadrupleDump() const {
     ostringstream out;
     out << "===== 四元式 =====\n";
     for (size_t i = 0; i < quadruples_.size(); ++i) {
-        const Quadruple& q = quadruples_[i];
-        out << i << ": (" << q.op << ", " << q.arg1 << ", "
-            << q.arg2 << ", " << q.result << ")\n";
+        const FourTuple& q = quadruples_[i];
+        out << i << ": (" << q.operator_str << ", " << q.first_value << ", "
+            << q.second_value << ", " << q.dist << ")\n";
     }
     if (quadruples_.empty()) {
         out << "(empty)\n";
@@ -996,12 +996,12 @@ int Parser::emitQuad(const string& op, const string& arg1, const string& arg2, c
 
 void Parser::backpatchQuadResult(int quadIndex, int target) {
     if (quadIndex < 0 || quadIndex >= static_cast<int>(quadruples_.size())) return;
-    quadruples_[quadIndex].result = to_string(target);
+    quadruples_[quadIndex].dist = to_string(target);
 }
 
 void Parser::backpatchQuadResult(int quadIndex, const string& target) {
     if (quadIndex < 0 || quadIndex >= static_cast<int>(quadruples_.size())) return;
-    quadruples_[quadIndex].result = target;
+    quadruples_[quadIndex].dist = target;
 }
 
 void Parser::declarePendingIdentifiers(const string& cat, int typ) {
