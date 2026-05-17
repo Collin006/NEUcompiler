@@ -21,6 +21,7 @@
 #include "global.h"
 #include "synbl.h"
 #include "parser.h"
+#include "quadruple_optimizer.h"
 
 using namespace std;
 // 词法分析器接口
@@ -132,13 +133,18 @@ int main(int argc, char* argv[]) {
         cout << "\n===== 四元式输出 =====\n";
         printLinesPaged(splitLines(parser.getQuadrupleDump()), 30);
 
+        // 5. 四元式优化（插入在四元式输出与目标代码生成之间）
+        cout << "\n===== 四元式优化 =====\n";
+        parser.setQuadruples(optimizeQuadruples(parser.getQuadruples()));
+        printLinesPaged(splitLines(parser.getQuadrupleDump()), 30);
+
         // 自动写日志文件（与源文件同目录）
         string logPath = sourcePath + "_parse_log.txt";
         if (parser.writeLogToFile(logPath)) {
             cout << "\n[LOG] 详细日志已写入: " << logPath << "\n";
         }
 
-        // 单独输出四元式文件（不含语法树，便于后续处理）
+        // 单独输出四元式文件（优化后，不含语法树，便于后续处理）
         string quadPath = sourcePath + "_quadruples.txt";
         {
             ofstream qout(quadPath, ios::out | ios::trunc);
