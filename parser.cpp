@@ -813,7 +813,6 @@ bool Parser::parse() {
 
     if (ok && !hasError_) {
         logInfo(getSymbolTableDump());
-        logInfo(getQuadrupleDump());
         logInfo("===== 语法分析通过 =====");
     } else {
         logInfo("===== 语法分析失败 =====");
