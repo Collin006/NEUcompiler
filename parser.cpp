@@ -978,6 +978,14 @@ string Parser::getQuadrupleDump() const {
     return out.str();
 }
 
+const vector<FourTuple>& Parser::getQuadruples() const {
+    return quadruples_;
+}
+
+void Parser::setQuadruples(const vector<FourTuple>& quadruples) {
+    quadruples_ = quadruples;
+}
+
 string Parser::getSymbolTableDump() const {
     using std::left;
     using std::setw;

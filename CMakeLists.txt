@@ -11,6 +11,7 @@ endif()
 add_executable(NEUcompiler main.cpp
         lexicalAnalyze.cpp
         parser.cpp
+        quadruple_optimizer.cpp
         global.h
         global.cpp
         synbl.cpp

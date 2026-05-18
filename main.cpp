@@ -6,6 +6,7 @@
 #include <cstring>
 #include <sstream>
 #include <limits>
+#include <unordered_set>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -21,6 +22,7 @@
 #include "global.h"
 #include "synbl.h"
 #include "parser.h"
+#include "quadruple_optimizer.h"
 
 using namespace std;
 // 词法分析器接口
@@ -65,6 +67,86 @@ vector<string> splitLines(const string& text) {
     }
 
     return lines;
+}
+
+bool isIntegerString(const string& s) {
+    if (s.empty()) return false;
+    size_t i = (s[0] == '-' ? 1 : 0);
+    if (i >= s.size()) return false;
+    for (; i < s.size(); ++i) {
+        if (s[i] < '0' || s[i] > '9') return false;
+    }
+    return true;
+}
+
+string valueOrPlaceholder(const string& value) {
+    return value.empty() ? "_" : value;
+}
+
+string generateTargetCode(const vector<FourTuple>& quadruples) {
+    unordered_set<int> jumpTargets;
+    jumpTargets.reserve(quadruples.size());
+
+    for (const FourTuple& q : quadruples) {
+        if ((q.operator_str == "if" || q.operator_str == "do" ||
+             q.operator_str == "el" || q.operator_str == "goto" ||
+             q.operator_str == "we") &&
+            isIntegerString(q.dist)) {
+            jumpTargets.insert(stoi(q.dist));
+        }
+    }
+
+    auto jumpLabel = [](int index) { return "L" + to_string(index); };
+    auto emitBinary = [](ostringstream& out, const string& op, const FourTuple& q) {
+        out << "  LD R, " << valueOrPlaceholder(q.first_value) << '\n';
+        out << "  " << op << " R, " << valueOrPlaceholder(q.second_value) << '\n';
+        out << "  ST R, " << valueOrPlaceholder(q.dist) << '\n';
+    };
+
+    ostringstream out;
+    out << "===== 目标代码 =====\n";
+    for (size_t i = 0; i < quadruples.size(); ++i) {
+        if (jumpTargets.count(static_cast<int>(i)) != 0) {
+            out << jumpLabel(static_cast<int>(i)) << ":\n";
+        }
+
+        const FourTuple& q = quadruples[i];
+        if (q.operator_str == "+") emitBinary(out, "ADD", q);
+        else if (q.operator_str == "-") emitBinary(out, "SUB", q);
+        else if (q.operator_str == "*") emitBinary(out, "MUL", q);
+        else if (q.operator_str == "/") emitBinary(out, "DIV", q);
+        else if (q.operator_str == "<") emitBinary(out, "LT", q);
+        else if (q.operator_str == ">") emitBinary(out, "GT", q);
+        else if (q.operator_str == "<=") emitBinary(out, "LE", q);
+        else if (q.operator_str == ">=") emitBinary(out, "GE", q);
+        else if (q.operator_str == "=") emitBinary(out, "EQ", q);
+        else if (q.operator_str == "<>") emitBinary(out, "NE", q);
+        else if (q.operator_str == "&&") emitBinary(out, "AND", q);
+        else if (q.operator_str == "||") emitBinary(out, "OR", q);
+        else if (q.operator_str == "!") {
+            out << "  LD R, " << valueOrPlaceholder(q.first_value) << '\n';
+            out << "  NOT R, _\n";
+            out << "  ST R, " << valueOrPlaceholder(q.dist) << '\n';
+        } else if (q.operator_str == ":=") {
+            out << "  LD R, " << valueOrPlaceholder(q.first_value) << '\n';
+            out << "  ST R, " << valueOrPlaceholder(q.dist) << '\n';
+        } else if (q.operator_str == "if" || q.operator_str == "do") {
+            out << "  LD R, " << valueOrPlaceholder(q.first_value) << '\n';
+            if (isIntegerString(q.dist)) out << "  FJ R, " << jumpLabel(stoi(q.dist)) << '\n';
+            else out << "  FJ R, " << valueOrPlaceholder(q.dist) << '\n';
+        } else if (q.operator_str == "el" || q.operator_str == "goto" || q.operator_str == "we") {
+            if (isIntegerString(q.dist)) out << "  JMP _, " << jumpLabel(stoi(q.dist)) << '\n';
+            else out << "  JMP _, " << valueOrPlaceholder(q.dist) << '\n';
+        } else if (q.operator_str == "wh" || q.operator_str == "ie") {
+            out << "  NOP\n";
+        } else if (q.operator_str == "lb") {
+            out << valueOrPlaceholder(q.first_value) << ":\n";
+        } else {
+            out << "  ; unsupported quadruple: (" << q.operator_str << ", "
+                << q.first_value << ", " << q.second_value << ", " << q.dist << ")\n";
+        }
+    }
+    return out.str();
 }
 
 } // namespace
@@ -132,13 +214,18 @@ int main(int argc, char* argv[]) {
         cout << "\n===== 四元式输出 =====\n";
         printLinesPaged(splitLines(parser.getQuadrupleDump()), 30);
 
+        // 5. 四元式优化（插入在四元式输出与目标代码生成之间）
+        cout << "\n===== 四元式优化 =====\n";
+        parser.setQuadruples(optimizeQuadruples(parser.getQuadruples()));
+        printLinesPaged(splitLines(parser.getQuadrupleDump()), 30);
+
         // 自动写日志文件（与源文件同目录）
         string logPath = sourcePath + "_parse_log.txt";
         if (parser.writeLogToFile(logPath)) {
             cout << "\n[LOG] 详细日志已写入: " << logPath << "\n";
         }
 
-        // 单独输出四元式文件（不含语法树，便于后续处理）
+        // 单独输出四元式文件（优化后，不含语法树，便于后续处理）
         string quadPath = sourcePath + "_quadruples.txt";
         {
             ofstream qout(quadPath, ios::out | ios::trunc);
@@ -155,7 +242,22 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        cout << "\n[PASS] 词法、语法与四元式生成均通过。\n";
+        // 6. 目标代码生成（后端）
+        cout << "\n===== 目标代码生成 =====\n";
+        string targetDump = generateTargetCode(parser.getQuadruples());
+        printLinesPaged(splitLines(targetDump), 30);
+
+        string targetPath = sourcePath + "_target_code.txt";
+        {
+            ofstream tout(targetPath, ios::out | ios::trunc);
+            if (tout.is_open()) {
+                tout << targetDump;
+                tout.close();
+                cout << "[LOG] 目标代码文件已写入: " << targetPath << "\n";
+            }
+        }
+
+        cout << "\n[PASS] 前端与后端流程已连通，目标代码已生成。\n";
 
     }
     catch (const exception& e) {
