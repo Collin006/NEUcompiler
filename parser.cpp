@@ -1108,13 +1108,6 @@ string Parser::newScopedName(const string& name) const {
     return result;
 }
 
-string Parser::calleeRetName(const string& callee) const {
-    string result = "ret";
-    for (const string& seg : scopePath_) result += "$" + seg;
-    result += "$" + callee;
-    return result;
-}
-
 string Parser::calleeResultName(const string& callee) const {
     string result = "_result";
     for (const string& seg : scopePath_) result += "$" + seg;
@@ -1791,8 +1784,8 @@ bool Parser::parseFunctionDeclaration() {
         return false;
     }
 
-    /* SEMANTIC: 函数结束，跳回调用者 */
-    emitQuad("goto", newScopedName("ret"), "", "");
+    /* SEMANTIC: 函数结束，返回调用点 */
+    emitQuad("ret", "", "", "");
 
     currentRoutineSymbolIndex_ = -1;
     leaveRoutine();
@@ -2020,8 +2013,8 @@ bool Parser::parseProcedureDeclaration() {
         return false;
     }
 
-    /* SEMANTIC: 过程结束，跳回调用者 */
-    emitQuad("goto", newScopedName("ret"), "", "");
+    /* SEMANTIC: 过程结束，返回调用点 */
+    emitQuad("ret", "", "", "");
 
     currentRoutineSymbolIndex_ = -1;
     leaveRoutine();
@@ -2600,8 +2593,19 @@ bool Parser::parseAssignOrCallStatement() {
             return false;
         }
 
-        /* SEMANTIC: 生成赋值四元式 */
-        emitQuad(":=", lastExpressionPlace_, "", lastStatementIdentifier_);
+        /* SEMANTIC: 生成赋值四元式。
+           函数体内对函数名的赋值改写为对 _result$func 的赋值 */
+        {
+            string dest = lastStatementIdentifier_;
+            if (currentRoutineSymbolIndex_ >= 0 &&
+                currentRoutineSymbolIndex_ < static_cast<int>(ctx.synbl.size())) {
+                const SynblItem& si = ctx.synbl[currentRoutineSymbolIndex_];
+                if (dest == si.name && si.cat == "f") {
+                    dest = newScopedName("_result");  // 当前作用域下的 _result, 即 _result$func
+                }
+            }
+            emitQuad(":=", lastExpressionPlace_, "", dest);
+        }
     } else {
         // 过程调用（含无参调用）
         // 收集实参
@@ -2611,15 +2615,12 @@ bool Parser::parseAssignOrCallStatement() {
             return false;
         }
 
-        // 生成 goto+label 调用序列
+        // 生成 call 调用序列
         string routineCallName = lastStatementIdentifier_;
-        string retLabel = newLabel();
-        // 入口标签：在 CALLER 的 scopePath 基础上 append callee
+        // 入口标签
         string entryLabel = routineCallName + "_entry";
         for (const string& seg : scopePath_) entryLabel += "$" + seg;
 
-        // 存返回地址
-        emitQuad(":=", retLabel, "", calleeRetName(routineCallName));
         // 实参→形参
         for (size_t i = 0; i < pendingActualArgs_.size(); ++i) {
             string paramName = "_p" + to_string(i);
@@ -2627,10 +2628,8 @@ bool Parser::parseAssignOrCallStatement() {
             paramName += "$" + routineCallName;
             emitQuad(":=", pendingActualArgs_[i], "", paramName);
         }
-        // 跳入
-        emitQuad("goto", entryLabel, "", "");
-        // 返回点
-        emitQuad("lb", retLabel, "", "");
+        // call：返回后执行下一条四元式，无需显式返回标签
+        emitQuad("call", entryLabel, "", "");
     }
 
     exitRule("赋值或调用语句", true);
@@ -3002,7 +3001,6 @@ bool Parser::parseExpression(const vector<string>& stopTokens) {
                 if (rhs[1].isCall) {
                     // 函数调用在表达式中: id(args)
                     string callName = rhs[0].text;
-                    string retLabel = newLabel();
                     int callResultTyp = rhs[0].typ;
                     if (callResultTyp < 0) callResultTyp = ensureBuiltinType("i");
                     string t = newTemp(callResultTyp);
@@ -3011,8 +3009,6 @@ bool Parser::parseExpression(const vector<string>& stopTokens) {
                     string entryLabel = callName + "_entry";
                     for (const string& seg : scopePath_) entryLabel += "$" + seg;
 
-                    // 存返回地址
-                    emitQuad(":=", retLabel, "", calleeRetName(callName));
                     // 传参
                     for (size_t i = 0; i < rhs[1].args.size(); ++i) {
                         string paramName = "_p" + to_string(i);
@@ -3020,10 +3016,8 @@ bool Parser::parseExpression(const vector<string>& stopTokens) {
                         paramName += "$" + callName;
                         emitQuad(":=", rhs[1].args[i], "", paramName);
                     }
-                    // 跳入
-                    emitQuad("goto", entryLabel, "", "");
-                    // 返回点
-                    emitQuad("lb", retLabel, "", "");
+                    // call：返回后执行下一条四元式
+                    emitQuad("call", entryLabel, "", "");
                     // 取返回值
                     emitQuad(":=", calleeResultName(callName), "", t);
 
