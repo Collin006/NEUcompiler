@@ -22,7 +22,7 @@
 #include "global.h"
 #include "synbl.h"
 #include "parser.h"
-#include "quadruple_optimizer.h"
+#include "youhua.h"
 
 using namespace std;
 // 词法分析器接口
@@ -153,26 +153,20 @@ string generateTargetCode(const vector<FourTuple>& quadruples) {
 
 int main(int argc, char* argv[]) {
 
-    // 控制台强制 UTF-8 编码（SetConsoleOutputCP 设置控制台代码页）
-    // 注意：不要使用 _setmode + _O_U8TEXT，会导致 buffer_size % 2 == 0 断言失败
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
 #endif
 
-    // 如果没有提供源文件路径
     if (argc < 2) {
         cerr << "Usage: compiler <source-file>\n";
         return 1;
     }
 
-    // 获取源文件路径
     string sourcePath = argv[1];
 
-    // 打开源文件
     ifstream sourceFile(sourcePath);
 
-    // 判断文件是否打开成功
     if (!sourceFile.is_open()) {
         cerr << "Error: cannot open source file: "
              << sourcePath << '\n';
@@ -180,7 +174,6 @@ int main(int argc, char* argv[]) {
     }
 
     try {
-        // 1. 词法分析
         cout << "===== 词法分析 =====\n";
         vector<Token> tokens = lexicalAnalyze(sourceFile);
 
@@ -192,7 +185,6 @@ int main(int argc, char* argv[]) {
         }
         printLinesPaged(tokenLines, 30);
 
-        // 2. 自动构建并输出表达式 SELECT 集与 LR(1) 分析表（词法分析后）
         cout << "\n===== 表达式分析表构建 =====\n";
         string expressionDump;
         string expressionError;
@@ -202,30 +194,24 @@ int main(int argc, char* argv[]) {
         }
         printLinesPaged(splitLines(expressionDump), 30);
 
-        // 3. 语法分析
         cout << "\n===== 语法分析 =====\n";
         Parser parser(tokens);
         bool parseOk = parser.parse();
 
-        // 输出日志到控制台（分段）
         printLinesPaged(splitLines(parser.getLog()), 30);
 
-        // 4. 四元式输出
         cout << "\n===== 四元式输出 =====\n";
         printLinesPaged(splitLines(parser.getQuadrupleDump()), 30);
 
-        // 5. 四元式优化（插入在四元式输出与目标代码生成之间）
         cout << "\n===== 四元式优化 =====\n";
-        parser.setQuadruples(optimizeQuadruples(parser.getQuadruples()));
+        parser.setQuadruples(optimize(parser.getQuadruples()));
         printLinesPaged(splitLines(parser.getQuadrupleDump()), 30);
 
-        // 自动写日志文件（与源文件同目录）
         string logPath = sourcePath + "_parse_log.txt";
         if (parser.writeLogToFile(logPath)) {
             cout << "\n[LOG] 详细日志已写入: " << logPath << "\n";
         }
 
-        // 单独输出四元式文件（优化后，不含语法树，便于后续处理）
         string quadPath = sourcePath + "_quadruples.txt";
         {
             ofstream qout(quadPath, ios::out | ios::trunc);
@@ -242,7 +228,6 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        // 6. 目标代码生成（后端）
         cout << "\n===== 目标代码生成 =====\n";
         string targetDump = generateTargetCode(parser.getQuadruples());
         printLinesPaged(splitLines(targetDump), 30);

@@ -6,16 +6,9 @@
 #include <algorithm>
 #include <sstream>
 
-using namespace std;
+#include "youhua.h"
 
-// ==================== 四元式结构 ====================
-struct FourTuple
-{
-    std::string operator_str; // 操作符
-    std::string first_value;  // 第一操作数
-    std::string second_value; // 第二操作数
-    std::string dist;         // 目标操作数
-};
+using namespace std;
 
 // ==================== 优化工具函数 ====================
 namespace Utils
@@ -29,6 +22,28 @@ namespace Utils
         if (s[0] == '-' && s.length() > 1 && isdigit(s[1]))
             return true;
         return isdigit(s[0]);
+    }
+
+    // 判断字符串是否是严格的整数下标，供跳转目标 stoi 前使用
+    bool isIntegerIndex(const std::string &s)
+    {
+        if (s.empty())
+            return false;
+
+        size_t start = 0;
+        if (s[0] == '-')
+        {
+            if (s.size() == 1)
+                return false;
+            start = 1;
+        }
+
+        for (size_t i = start; i < s.size(); i++)
+        {
+            if (!isdigit(static_cast<unsigned char>(s[i])))
+                return false;
+        }
+        return true;
     }
 
     // 判断是否是变量（以字符开头）
@@ -330,43 +345,64 @@ std::vector<FourTuple> commonSubexpressionElimination(const std::vector<FourTupl
 }
 
 // ==================== 5. 基本块划分 ====================
-struct BasicBlock
-{
-    int id;
-    std::vector<FourTuple> tuples;
-    std::set<int> prev;
-    std::set<int> next;
-};
 
 std::vector<BasicBlock> buildBasicBlocks(const std::vector<FourTuple> &tuples)
 {
-    // 确定入口
+    // 说明：当前四元式中存在两类“标记/跳转”信息：
+    // 1. 函数入口标签：如 (lb, max_entry, , )，标签名保存在 first_value 中，不是数字下标；
+    // 2. 控制流跳转目标：如 (if, _t89, , 152)、(do, _t98, , 172)、(we, , , 167)，dist 保存数字形式的四元式下标。
+    // 因此不能对所有 lb.dist 或所有控制流 dist 直接 stoi，否则遇到空串或字符串标签会抛出 stoi: no conversion。
+
     std::set<int> leaders;
+    if (tuples.empty())
+        return {};
+
     leaders.insert(0);
 
-    std::map<int, int> label2idx;
-    for (int i = 0; i < tuples.size(); i++)
+    // 记录字符串标签到四元式下标的映射，供以后如果出现 goto max_entry 这类字符串跳转时使用。
+    std::map<std::string, int> label2idx;
+    for (int i = 0; i < static_cast<int>(tuples.size()); i++)
     {
-        if (tuples[i].operator_str == "lb")
+        if (tuples[i].operator_str == "lb" && !tuples[i].first_value.empty())
         {
-            label2idx[std::stoi(tuples[i].dist)] = i;
+            label2idx[tuples[i].first_value] = i;
+            leaders.insert(i); // 函数/过程入口本身也是基本块入口
         }
     }
 
-    for (int i = 0; i < tuples.size(); i++)
+    auto addTargetLeader = [&](const std::string &targetText)
+    {
+        if (targetText.empty())
+            return;
+
+        if (Utils::isIntegerIndex(targetText))
+        {
+            int target = std::stoi(targetText);
+            if (target >= 0 && target < static_cast<int>(tuples.size()))
+                leaders.insert(target);
+        }
+        else if (label2idx.count(targetText))
+        {
+            leaders.insert(label2idx[targetText]);
+        }
+    };
+
+    for (int i = 0; i < static_cast<int>(tuples.size()); i++)
     {
         std::string op = tuples[i].operator_str;
-        if (op == "goto" || op == "if" || op == "wh" || op == "do" ||
-            op == "we" || op == "el" || op == "ie")
+
+        // 控制流语句的下一条语句是新的基本块入口
+        if (op == "goto" || op == "if" || op == "do" || op == "we" ||
+            op == "el" || op == "ie" || op == "ret")
         {
-            if (i + 1 < tuples.size())
+            if (i + 1 < static_cast<int>(tuples.size()))
                 leaders.insert(i + 1);
         }
-        if (op == "goto")
+
+        // 带跳转目标的四元式，其目标位置也是基本块入口
+        if (op == "goto" || op == "if" || op == "do" || op == "we" || op == "el")
         {
-            int target = std::stoi(tuples[i].dist);
-            if (label2idx.count(target))
-                leaders.insert(label2idx[target]);
+            addTargetLeader(tuples[i].dist);
         }
     }
 
@@ -377,12 +413,14 @@ std::vector<BasicBlock> buildBasicBlocks(const std::vector<FourTuple> &tuples)
     std::vector<BasicBlock> blocks;
     std::map<int, int> idx2block;
 
-    for (int i = 0; i < leader_list.size(); i++)
+    for (int i = 0; i < static_cast<int>(leader_list.size()); i++)
     {
         BasicBlock bb;
         bb.id = i;
         int start = leader_list[i];
-        int end = (i + 1 < leader_list.size()) ? leader_list[i + 1] - 1 : tuples.size() - 1;
+        int end = (i + 1 < static_cast<int>(leader_list.size()))
+                      ? leader_list[i + 1] - 1
+                      : static_cast<int>(tuples.size()) - 1;
 
         for (int j = start; j <= end; j++)
         {
@@ -392,42 +430,67 @@ std::vector<BasicBlock> buildBasicBlocks(const std::vector<FourTuple> &tuples)
         blocks.push_back(bb);
     }
 
+    auto connectBlocks = [&](int from, int targetIndex)
+    {
+        if (from < 0 || from >= static_cast<int>(blocks.size()))
+            return;
+        if (!idx2block.count(targetIndex))
+            return;
+
+        int to = idx2block[targetIndex];
+        blocks[from].next.insert(to);
+        blocks[to].prev.insert(from);
+    };
+
+    auto connectTarget = [&](int from, const std::string &targetText)
+    {
+        if (targetText.empty())
+            return;
+
+        if (Utils::isIntegerIndex(targetText))
+        {
+            int target = std::stoi(targetText);
+            if (target >= 0 && target < static_cast<int>(tuples.size()))
+                connectBlocks(from, target);
+        }
+        else if (label2idx.count(targetText))
+        {
+            connectBlocks(from, label2idx[targetText]);
+        }
+    };
+
     // 建立块间联系
-    for (int i = 0; i < blocks.size(); i++)
+    for (int i = 0; i < static_cast<int>(blocks.size()); i++)
     {
         if (blocks[i].tuples.empty())
             continue;
 
-        std::string last_op = blocks[i].tuples.back().operator_str;
+        const FourTuple &last = blocks[i].tuples.back();
+        std::string last_op = last.operator_str;
 
-        if (last_op == "goto")
+        if (last_op == "goto" || last_op == "we" || last_op == "el")
         {
-            int target = std::stoi(blocks[i].tuples.back().dist);
-            if (label2idx.count(target) && idx2block.count(label2idx[target]))
-            {
-                int to = idx2block[label2idx[target]];
-                blocks[i].next.insert(to);
-                blocks[to].prev.insert(i);
-            }
+            // 无条件跳转：只有目标后继
+            connectTarget(i, last.dist);
         }
-        else if (last_op == "if" || last_op == "wh")
+        else if (last_op == "if" || last_op == "do")
         {
-            int target = std::stoi(blocks[i].tuples.back().dist);
-            if (label2idx.count(target) && idx2block.count(label2idx[target]))
-            {
-                int to = idx2block[label2idx[target]];
-                blocks[i].next.insert(to);
-                blocks[to].prev.insert(i);
-            }
-            if (i + 1 < blocks.size())
+            // 条件跳转：目标后继 + 顺序后继
+            connectTarget(i, last.dist);
+            if (i + 1 < static_cast<int>(blocks.size()))
             {
                 blocks[i].next.insert(i + 1);
                 blocks[i + 1].prev.insert(i);
             }
         }
+        else if (last_op == "ret")
+        {
+            // 返回语句没有顺序后继
+            continue;
+        }
         else
         {
-            if (i + 1 < blocks.size())
+            if (i + 1 < static_cast<int>(blocks.size()))
             {
                 blocks[i].next.insert(i + 1);
                 blocks[i + 1].prev.insert(i);
@@ -438,13 +501,42 @@ std::vector<BasicBlock> buildBasicBlocks(const std::vector<FourTuple> &tuples)
     return blocks;
 }
 
-// ==================== 6. 优化管理器 ====================
-std::vector<FourTuple> optimize(const std::vector<FourTuple> &input)
-{
-    std::cout << "\n========== 开始优化 ==========" << std::endl;
-    std::cout << "原始四元式: " << input.size() << " 条" << std::endl;
+/*
+优化阶段错误说明：stoi: no conversion
 
-    std::vector<FourTuple> result = input;
+问题现象：
+    程序进入“四元式优化”后，在基本块划分阶段抛出异常：Compiler error: stoi: no conversion。
+
+直接原因：
+    原实现把某些四元式字段直接传给 std::stoi，例如 lb.dist、wh.dist。
+    但当前四元式格式中，函数入口标签类似：
+        (lb, max_entry, , )
+    它的标签名在 first_value 中，dist 是空字符串。
+    while 起始标记类似：
+        (wh, , , )
+    它也没有跳转目标。
+    对空字符串或 max_entry 这类非数字字符串调用 stoi，就会触发 no conversion 异常。
+
+修复思路：
+    1. 新增 Utils::isIntegerIndex，用于在 stoi 前判断字符串是否真的是整数下标；
+    2. lb 不再使用 dist 建立数字标签表，而是用 first_value 建立字符串标签到四元式下标的映射；
+    3. if、do、we、goto、el 等带跳转目标的四元式，只有在 dist 是合法整数或已知字符串标签时才加入基本块入口；
+    4. wh 只是循环开始标记，本身没有 dist 跳转目标，不能直接 stoi；
+    5. ret 没有顺序后继，避免把函数返回后的下一条错误连成同一个控制流。
+
+当前约定：
+    - (lb, label, , )：label 是字符串入口标签，保存在 first_value；
+    - (if, cond, , target)：target 是条件跳转目标，通常是数字形式的四元式下标；
+    - (do, cond, , target)：target 是 while 条件为假时跳出的目标下标；
+    - (we, , , target)：target 是 while 回跳位置；
+    - (ret, , , )：函数/过程返回，无后继基本块。
+*/
+
+// ==================== 6. 优化管理器 ====================
+// 对单个基本块内部进行局部优化
+std::vector<FourTuple> optimizeBasicBlock(const BasicBlock &block)
+{
+    std::vector<FourTuple> result = block.tuples;
 
     // 常量折叠
     result = constantFolding(result);
@@ -461,9 +553,37 @@ std::vector<FourTuple> optimize(const std::vector<FourTuple> &input)
     // 死代码消除
     result = deadCodeElimination(result);
 
+    return result;
+}
+
+// 对所有基本块分别进行优化，并重新拼接成四元式序列
+std::vector<FourTuple> optimizeByBasicBlocks(const std::vector<BasicBlock> &blocks)
+{
+    std::vector<FourTuple> output;
+
+    for (const auto &block : blocks)
+    {
+        std::cout << "\n----- 优化基本块 B" << block.id << " -----" << std::endl;
+        std::vector<FourTuple> optimizedBlock = optimizeBasicBlock(block);
+        output.insert(output.end(), optimizedBlock.begin(), optimizedBlock.end());
+    }
+
+    return output;
+}
+
+std::vector<FourTuple> optimize(const std::vector<FourTuple> &input)
+{
+    std::cout << "\n========== 开始优化 ==========" << std::endl;
+    std::cout << "原始四元式: " << input.size() << " 条" << std::endl;
+
+    // 先划分基本块，再在每个基本块内部做局部优化
+    std::vector<BasicBlock> blocks = buildBasicBlocks(input);
+    std::cout << "基本块数量: " << blocks.size() << " 个" << std::endl;
+
+    std::vector<FourTuple> result = optimizeByBasicBlocks(blocks);
+
     std::cout << "优化后四元式: " << result.size() << " 条" << std::endl;
-    std::cout << "========== 优化完成 ==========\n"
-              << std::endl;
+    std::cout << "========== 优化完成 ==========" << std::endl;
 
     return result;
 }
@@ -501,6 +621,7 @@ void printBlocks(const std::vector<BasicBlock> &blocks)
     }
 }
 
+/*
 // ==================== 测试 ====================
 int main()
 {
@@ -576,7 +697,11 @@ int main()
     std::cout << "原始四元式:" << std::endl;
     printTuples(test);
 
-    // 优化
+    // 划分基本块并打印基本块结构
+    std::vector<BasicBlock> blocks = buildBasicBlocks(test);
+    printBlocks(blocks);
+
+    // 按基本块进行优化
     std::vector<FourTuple> optimized = optimize(test);
 
     std::cout << "优化后四元式:" << std::endl;
@@ -584,3 +709,4 @@ int main()
 
     return 0;
 }
+*/
