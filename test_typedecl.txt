@@ -1,0 +1,51 @@
+program TestTypeDecl;
+
+type
+    { 数组类型 }
+    MyArray = array [1 .. 10] of integer;
+
+    { 记录类型 }
+    Point = record
+        x : integer;
+        y : integer;
+    end;
+
+    Student = record
+        id : integer;
+        score : real;
+    end;
+
+    { 嵌套引用 }
+    Line = record
+        p1 : Point;
+        p2 : Point;
+    end;
+
+var
+    a : integer;
+    arr_int : MyArray;
+    pt : Point;
+    s : Student;
+    l : Line;
+
+begin
+    a := 10;
+
+    { 数组下标使用 }
+    arr_int[1] := 100;
+    arr_int[a] := 200;
+    a := arr_int[1] + arr_int[2];
+
+    { 字段访问 }
+    pt.x := 10;
+    pt.y := 20;
+    a := pt.x + pt.y;
+
+    { 嵌套字段访问 }
+    l.p1.x := 1;
+    l.p1.y := 2;
+    a := l.p1.x + l.p2.y;
+
+    { 数组下标作为字段的一部分 }
+    arr_int[1] := pt.x;
+end.

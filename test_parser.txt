@@ -1,0 +1,148 @@
+program TestExpression;
+
+var
+    a, b, c, d, e : integer;
+    x, y, z       : real;
+    ok, flag       : boolean;
+    msg            : string;
+
+{ 函数：计算两个整数最大值 }
+function max(m : integer; n : integer) : integer;
+begin
+    if m > n then
+        max := m;
+    if m <= n then
+        max := n;
+end;
+
+{ 过程：交换实数 }
+procedure swap(var u : real; var v : real);
+var
+    temp : real;
+begin
+    temp := u;
+    u := v;
+    v := temp;
+end;
+
+begin
+    { ===== 1. 基本算术 ===== }
+    a := 10;
+    b := 20;
+    c := a + b;
+    c := a - b;
+    c := a * b;
+    c := a / b;
+
+    { ===== 2. 算术优先级：乘除高于加减 ===== }
+    c := a + b * c;
+    c := a * b + c;
+    c := a + b - c;
+    c := a * b / c;
+
+    { ===== 3. 括号覆盖优先级 ===== }
+    c := (a + b) * c;
+    c := a * (b + c);
+    c := (a + b) * (c - d);
+    c := ((a + b)) * c;
+
+    { ===== 4. 一元运算符 ===== }
+    c := -a;
+    c := -a + b;
+    c := a + -b;
+    c := -(a + b);
+    c := -(-a);
+
+    { ===== 5. 关系运算符（全部 6 种） ===== }
+    ok := a > b;
+    ok := a >= b;
+    ok := a < b;
+    ok := a <= b;
+    ok := a = b;
+    ok := a <> b;
+
+    { ===== 6. 布尔常量 ===== }
+    ok := true;
+    ok := false;
+
+    { ===== 7. 布尔表达式：非、与、或 ===== }
+    ok := !flag;
+    ok := !true;
+    ok := flag && ok;
+    ok := flag || ok;
+    ok := a > b && c < d;
+    ok := a > b || c < d;
+
+    { ===== 8. 布尔表达式优先级：! > && > || ===== }
+    ok := !flag && a > b;
+    ok := flag || a > b && c < d;
+    ok := (a > b || c < d) && flag;
+    ok := a > b && c < d || flag;
+
+    { ===== 9. 复杂混合表达式 ===== }
+    ok := a + b > c * d;
+    ok := a + b * (c - d) > e / a && !flag;
+    c := a + b * c + d;
+    c := (a + b) * (c - d) * (e + a);
+
+    { ===== 10. 实数表达式 ===== }
+    x := 3.14;
+    y := 2.71;
+    z := x + y * x;
+    z := (x + y) / (x - y);
+    z := -x + y;
+
+    { ===== 11. 字符串赋值 ===== }
+    msg := 'hello';
+    msg := 'Pascal';
+
+    { ===== 12. if 语句（含复杂条件） ===== }
+    if a > b then
+        c := 1;
+
+    if a > b && c < d then
+        c := 2;
+
+    if (a > b || c < d) && !flag then
+        c := 3;
+
+    { ===== 13. while 语句（含复杂条件） ===== }
+    while a < b do
+        a := a + 1;
+
+    while a < b && !flag do
+    begin
+        a := a + 1;
+        flag := true;
+    end;
+
+    { ===== 14. 函数调用在表达式中 ===== }
+    c := max(a, b);
+    c := max(a + b, c * d);
+    c := a + max(b, c);
+    c := max(max(a, b), c);
+
+    { ===== 15. 悬空 else ===== }
+    if flag then
+        if a > b then
+            c := 100;
+
+    if flag then
+        if a > b then
+            c := 200;
+
+    { ===== 16. 无参过程调用 ===== }
+    swap(x, y);
+
+    { ===== 17. 空复合语句 ===== }
+    begin
+    end;
+
+    { ===== 18. 嵌套 begin-end ===== }
+    begin
+        a := 0;
+        begin
+            b := 1;
+        end;
+    end;
+end.
