@@ -16,5 +16,5 @@ add_executable(NEUcompiler main.cpp
         synbl.cpp
         synbl.h
         parser.h
-        youhua.cpp
+        youhua.CPP
         youhua.h)
