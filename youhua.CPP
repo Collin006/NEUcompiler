@@ -291,7 +291,7 @@ std::vector<FourTuple> commonSubexpressionElimination(const std::vector<FourTupl
     return output;
 }
 
-// ==================== 5. 标号重定位（新增） ====================
+// ==================== 5. 标号重定位 ====================
 void relocateLabels(std::vector<FourTuple> &tuples)
 {
     std::map<int, int> oldToNew;
@@ -318,7 +318,140 @@ void relocateLabels(std::vector<FourTuple> &tuples)
     }
 }
 
-// ==================== 6. 优化管理器 ====================
+// ==================== 6. 基本块划分（新增，无四元式副本） ====================
+struct BasicBlock
+{
+    int id;                // 基本块编号
+    int start_index;       // 在原四元式序列中的起始索引
+    int end_index;         // 结束索引（包含）
+    std::set<int> prev;    // 前驱基本块 id
+    std::set<int> next;    // 后继基本块 id
+};
+
+// 构建基本块：只保存索引范围，不复制四元式
+std::vector<BasicBlock> buildBasicBlocks(const std::vector<FourTuple> &tuples)
+{
+    // 1. 确定入口点（leader）
+    std::set<int> leaders;
+    leaders.insert(0);  // 第一条指令是入口
+
+    // 记录标号指令：lb 的 dist 值 -> 索引
+    std::map<int, int> label2idx;
+    for (int i = 0; i < (int)tuples.size(); ++i)
+    {
+        if (tuples[i].operator_str == "lb")
+        {
+            int label = std::stoi(tuples[i].dist);
+            label2idx[label] = i;
+        }
+    }
+
+    // 扫描跳转指令，其后继指令也是 leader
+    for (int i = 0; i < (int)tuples.size(); ++i)
+    {
+        const std::string &op = tuples[i].operator_str;
+        if (op == "goto" || op == "if" || op == "wh" || op == "do" ||
+            op == "we" || op == "el" || op == "ie")
+        {
+            if (i + 1 < (int)tuples.size())
+                leaders.insert(i + 1);
+        }
+        if (op == "goto")
+        {
+            int target = std::stoi(tuples[i].dist);
+            if (label2idx.count(target))
+                leaders.insert(label2idx[target]);
+        }
+    }
+
+    // 2. 将 leader 排序，划分基本块
+    std::vector<int> leader_list(leaders.begin(), leaders.end());
+    std::sort(leader_list.begin(), leader_list.end());
+
+    std::vector<BasicBlock> blocks;
+    std::map<int, int> idx2block;   // 四元式索引 -> 所属基本块 id
+
+    for (size_t i = 0; i < leader_list.size(); ++i)
+    {
+        BasicBlock bb;
+        bb.id = (int)blocks.size();
+        bb.start_index = leader_list[i];
+        bb.end_index = (i + 1 < leader_list.size()) ? leader_list[i + 1] - 1 : (int)tuples.size() - 1;
+        blocks.push_back(bb);
+        for (int j = bb.start_index; j <= bb.end_index; ++j)
+            idx2block[j] = bb.id;
+    }
+
+    // 3. 建立前驱和后继关系
+    for (size_t i = 0; i < blocks.size(); ++i)
+    {
+        const BasicBlock &bb = blocks[i];
+        if (bb.start_index > bb.end_index) continue;
+
+        const FourTuple &last = tuples[bb.end_index];
+        std::string last_op = last.operator_str;
+
+        if (last_op == "goto")
+        {
+            int target = std::stoi(last.dist);
+            if (label2idx.count(target) && idx2block.count(label2idx[target]))
+            {
+                int to_id = idx2block[label2idx[target]];
+                blocks[i].next.insert(to_id);
+                blocks[to_id].prev.insert(i);
+            }
+        }
+        else if (last_op == "if" || last_op == "wh")
+        {
+            int target = std::stoi(last.dist);
+            if (label2idx.count(target) && idx2block.count(label2idx[target]))
+            {
+                int to_id = idx2block[label2idx[target]];
+                blocks[i].next.insert(to_id);
+                blocks[to_id].prev.insert(i);
+            }
+            // 条件跳转的 fall-through 后继
+            if (i + 1 < blocks.size())
+            {
+                blocks[i].next.insert(i + 1);
+                blocks[i + 1].prev.insert(i);
+            }
+        }
+        else
+        {
+            // 普通顺序流
+            if (i + 1 < blocks.size())
+            {
+                blocks[i].next.insert(i + 1);
+                blocks[i + 1].prev.insert(i);
+            }
+        }
+    }
+
+    return blocks;
+}
+
+// 打印基本块信息（仅用于调试）
+void printBlocks(const std::vector<FourTuple> &tuples, const std::vector<BasicBlock> &blocks)
+{
+    std::cout << "\n========== 基本块划分 ==========\n";
+    for (const auto &bb : blocks)
+    {
+        std::cout << "B" << bb.id << " [" << bb.start_index << ", " << bb.end_index << "] 前驱:{";
+        for (int p : bb.prev) std::cout << "B" << p << " ";
+        std::cout << "} 后继:{";
+        for (int n : bb.next) std::cout << "B" << n << " ";
+        std::cout << "}\n";
+        for (int i = bb.start_index; i <= bb.end_index; ++i)
+        {
+            const auto &t = tuples[i];
+            std::cout << "  " << i << ": (" << t.operator_str << ", " << t.first_value
+                      << ", " << t.second_value << ", " << t.dist << ")\n";
+        }
+    }
+}
+
+// ==================== 7. 优化管理器 ====================
 std::vector<FourTuple> optimize(const std::vector<FourTuple> &input)
 {
     std::cout << "\n========== 开始优化 ==========" << std::endl;
@@ -331,8 +464,7 @@ std::vector<FourTuple> optimize(const std::vector<FourTuple> &input)
     result = deadCodeElimination(result);
     relocateLabels(result); // 必须最后调用
     std::cout << "优化后四元式: " << result.size() << " 条" << std::endl;
-    std::cout << "========== 优化完成 ==========\n"
-              << std::endl;
+    std::cout << "========== 优化完成 ==========\n" << std::endl;
     return result;
 }
 
@@ -345,9 +477,32 @@ void printTuples(const std::vector<FourTuple> &tuples)
                   << ", " << tuples[i].dist << ")" << std::endl;
 }
 
-// 简单测试
+// ==================== 测试主函数（演示基本块划分） ====================
 int main()
 {
     // 这里可以放你的测试代码
+    // 示例：构造一个简单的四元式序列
+    std::vector<FourTuple> test;
+    FourTuple t;
+
+    t.operator_str = "lb"; t.first_value = ""; t.second_value = ""; t.dist = "100"; test.push_back(t);
+    t.operator_str = ":="; t.first_value = "10"; t.second_value = ""; t.dist = "a"; test.push_back(t);
+    t.operator_str = "if"; t.first_value = "a"; t.second_value = "b"; t.dist = "200"; test.push_back(t);
+    t.operator_str = "goto"; t.first_value = ""; t.second_value = ""; t.dist = "100"; test.push_back(t);
+    t.operator_str = "lb"; t.first_value = ""; t.second_value = ""; t.dist = "200"; test.push_back(t);
+    t.operator_str = ":="; t.first_value = "a"; t.second_value = "1"; t.dist = "b"; test.push_back(t);
+    t.operator_str = "goto"; t.first_value = ""; t.second_value = ""; t.dist = "100"; test.push_back(t);
+
+    std::cout << "原始四元式:\n";
+    printTuples(test);
+
+    // 构建基本块（不修改四元式，只划分）
+    auto blocks = buildBasicBlocks(test);
+    printBlocks(test, blocks);
+
+    // 如需优化，调用 optimize(test) 即可
+    // auto optimized = optimize(test);
+    // printTuples(optimized);
+
     return 0;
 }
