@@ -194,10 +194,18 @@ static Token scanIdentifierOrKeyword(istream& source, int line)
         return token;
     }
 
-    // 标识符: 若在作用域内，追加 $scopePath 后缀
+    // 标识符: 若在作用域内且非函数/过程名，追加 $scopePath 后缀
     string lookupName = value;
-    for (const string& seg : lexScopeStack) {
-        lookupName += "$" + seg;
+    {
+        bool isFuncName = false;
+        for (const string& seg : lexScopeStack) {
+            if (value == seg) { isFuncName = true; break; }
+        }
+        if (!isFuncName) {
+            for (const string& seg : lexScopeStack) {
+                lookupName += "$" + seg;
+            }
+        }
     }
 
     // 如果刚看到 function/procedure，当前标识符就是函数/过程名 → 入栈
