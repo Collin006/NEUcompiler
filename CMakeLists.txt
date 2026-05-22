@@ -13,6 +13,8 @@ add_executable(NEUcompiler main.cpp
         parser.cpp
         active_mark.cpp
         active_mark.h
+        code_builders.cpp
+        code_builders.h
         global.h
         global.cpp
         synbl.cpp

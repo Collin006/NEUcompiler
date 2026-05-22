@@ -1,4 +1,5 @@
 #include "active_mark.h"
+#include <sstream>
 
 static bool IsConstant(const std::string &s)
 {
@@ -199,4 +200,28 @@ ActiveMark(
     }
 
     return {marked_qt, active_record};
+}
+
+std::string formatMarkedValue(const MarkedValue &value)
+{
+    std::string text = value.value.empty() ? "_" : value.value;
+    if (value.active == is_constant)
+    {
+        return text + "/C";
+    }
+    return text + (value.active ? "/1" : "/0");
+}
+
+std::string dumpMarkedQuadruples(const std::vector<MarkedFourTuple> &marked)
+{
+    std::ostringstream out;
+    for (size_t i = 0; i < marked.size(); ++i)
+    {
+        const auto &mft = marked[i];
+        out << i << ": (" << mft.operator_str << ", "
+            << formatMarkedValue(mft.first_value) << ", "
+            << formatMarkedValue(mft.second_value) << ", "
+            << formatMarkedValue(mft.dist) << ")\n";
+    }
+    return out.str();
 }
