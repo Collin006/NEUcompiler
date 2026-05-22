@@ -15,8 +15,8 @@ struct ActiveBasicBlock
     std::set<int> next;
     std::set<std::string> use;
     std::set<std::string> def;
-    std::set<std::string> IN;
-    std::set<std::string> OUT;
+    std::set<std::string> in_set;
+    std::set<std::string> out_set;
 };
 
 std::vector<ActiveBasicBlock> ToActiveBlocks(const std::vector<BasicBlock> &blocks);

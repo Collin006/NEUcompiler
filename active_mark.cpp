@@ -83,7 +83,7 @@ void ComputeInOut(std::vector<ActiveBasicBlock> &blocks)
             std::set<std::string> new_OUT;
             for (int next_id : block.next)
             {
-                for (const auto &var : blocks[next_id].IN)
+                for (const auto &var : blocks[next_id].in_set)
                 {
                     new_OUT.insert(var);
                 }
@@ -98,10 +98,10 @@ void ComputeInOut(std::vector<ActiveBasicBlock> &blocks)
                 }
             }
 
-            if (new_IN != block.IN || new_OUT != block.OUT)
+            if (new_IN != block.in_set || new_OUT != block.out_set)
             {
-                block.IN = new_IN;
-                block.OUT = new_OUT;
+                block.in_set = new_IN;
+                block.out_set = new_OUT;
                 changed = true;
             }
         }
@@ -117,7 +117,7 @@ std::vector<std::set<std::string>> ComputePerInstructionLiveness(
 
     for (const auto &block : blocks)
     {
-        std::set<std::string> live_after = block.OUT;
+        std::set<std::string> live_after = block.out_set;
 
         for (int i = block.end_index; i >= block.start_index; i--)
         {
