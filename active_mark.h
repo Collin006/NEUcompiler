@@ -35,3 +35,6 @@ std::pair<
 ActiveMark(
     const std::vector<FourTuple> &tuples,
     const std::vector<BasicBlock> &blocks);
+
+std::string formatMarkedValue(const MarkedValue &value);
+std::string dumpMarkedQuadruples(const std::vector<MarkedFourTuple> &marked);

@@ -71,26 +71,6 @@ vector<string> splitLines(const string& text) {
     return lines;
 }
 
-string formatMarkedValue(const MarkedValue& value) {
-    string text = value.value.empty() ? "_" : value.value;
-    if (value.active == is_constant) {
-        return text + "/C";
-    }
-    return text + (value.active ? "/1" : "/0");
-}
-
-string dumpMarkedQuadruples(const vector<MarkedFourTuple>& marked) {
-    ostringstream out;
-    for (size_t i = 0; i < marked.size(); ++i) {
-        const auto& mft = marked[i];
-        out << i << ": (" << mft.operator_str << ", "
-            << formatMarkedValue(mft.first_value) << ", "
-            << formatMarkedValue(mft.second_value) << ", "
-            << formatMarkedValue(mft.dist) << ")\n";
-    }
-    return out.str();
-}
-
 } // namespace
 
 int main(int argc, char* argv[]) {
