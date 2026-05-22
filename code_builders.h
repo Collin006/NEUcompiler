@@ -125,11 +125,18 @@ private:
     void BuildDoToken(const int& index, const MarkedFourTuple& ft); // 构建do语句的目标代码
     void BuildWhileEndToken(const int& index, const MarkedFourTuple& ft); // 构建while语句结束的目标代码
 
-    // goto语句构建函数
-    void BuildGotoToken(const int& index, const MarkedFourTuple& ft); // 构建goto语句的目标代码
+    // call语句构建函数
+    void BuildCallToken(const int& index, const MarkedFourTuple& ft); // 构建call语句的目标代码
+    void BuildReturnToken(const int& index, const MarkedFourTuple& ft); // 构建return语句的目标代码
 
     // Label语句构建函数
     void BuildLabelToken(const int& index, const MarkedFourTuple& ft); // 构建Label语句的目标代码
+
+    // goto语句构建函数
+    void BuildGotoToken(const int& index, const MarkedFourTuple& ft); // 构建goto语句的目标代码
+
+    // 赋值语句构建函数
+    void BuildAssignToken(const int& index, const MarkedFourTuple& ft); // 构建赋值语句的目标代码
 };
 
 std::string generateTargetCode(const std::vector<FourTuple>& quadruples);

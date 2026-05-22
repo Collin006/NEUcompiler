@@ -208,7 +208,61 @@ std::string CodeBuilder::GetOperateCommand(Operators op)
 
 void CodeBuilder::BuildTokens()
 {
-    return;
+    for (int i = 0; i < QT.size(); i++)
+    {
+        const std::string &op = QT[i].operator_str;
+
+        if (op == "+" || op == "-" || op == "*" || op == "/" ||
+            op == ">" || op == "<" || op == "==" || op == "<=" || op == ">=" || op == "!=" ||
+            op == "&&" || op == "||" || op == "!")
+        {
+            BuildTwoOperandsToken(i, QT[i]);
+        }
+        else if (op == ":=")
+        {
+            BuildAssignToken(i, QT[i]);
+        }
+        else if (op == "if")
+        {
+            BuildIfToken(i, QT[i]);
+        }
+        else if (op == "el")
+        {
+            BuildElseToken(i, QT[i]);
+        }
+        else if (op == "ie")
+        {
+            BuildIfEndToken(i, QT[i]);
+        }
+        else if (op == "wh")
+        {
+            BuildWhileToken(i, QT[i]);
+        }
+        else if (op == "do")
+        {
+            BuildDoToken(i, QT[i]);
+        }
+        else if (op == "we")
+        {
+            BuildWhileEndToken(i, QT[i]);
+        }
+        else if (op == "lb")
+        {
+            BuildLabelToken(i, QT[i]);
+        }
+        else if (op == "call")
+        {
+            BuildCallToken(i, QT[i]);
+        }
+        else if (op == "ret")
+        {
+            BuildReturnToken(i, QT[i]);
+        }
+        else if (op == "goto")
+        {
+            BuildGotoToken(i, QT[i]);
+        }
+    }
 }
 
 /**
@@ -403,6 +457,13 @@ void CodeBuilder::BuildIfEndToken(const int &index, const MarkedFourTuple &ft)
     RDL = null_value;
 }
 
+/**
+ * @brief 构建while语句的目标代码
+ *
+ * @param index 四元式的在四元式区中的索引
+ * @param ft 四元式
+ * @return std::vector<AimCodeToken> while语句的目标代码
+ */
 void CodeBuilder::BuildWhileToken(const int &index, const MarkedFourTuple &ft)
 {
     code_index = OBJ.size();
@@ -417,6 +478,13 @@ void CodeBuilder::BuildWhileToken(const int &index, const MarkedFourTuple &ft)
     RDL = null_value;
 }
 
+/**
+ * @brief 构建do语句的目标代码
+ *
+ * @param index 四元式的在四元式区中的索引
+ * @param ft 四元式
+ * @return std::vector<AimCodeToken> do语句的目标代码
+ */
 void CodeBuilder::BuildDoToken(const int &index, const MarkedFourTuple &ft)
 {
     // 保存寄存器中的活跃数据到内存
@@ -458,6 +526,13 @@ void CodeBuilder::BuildDoToken(const int &index, const MarkedFourTuple &ft)
     RDL = null_value;
 }
 
+/**
+ * @brief 构建while语句结束的目标代码
+ *
+ * @param index 四元式的在四元式区中的索引
+ * @param ft 四元式
+ * @return std::vector<AimCodeToken> while语句结束的目标代码
+ */
 void CodeBuilder::BuildWhileEndToken(const int &index, const MarkedFourTuple &ft)
 {
     //先生成回到循环入口的JMP指令
@@ -487,50 +562,151 @@ void CodeBuilder::BuildWhileEndToken(const int &index, const MarkedFourTuple &ft
     RDL = null_value;
 }
 
+/**
+ * @brief 构建标签语句的目标代码
+ *
+ * @param index 四元式的在四元式区中的索引
+ * @param ft 四元式
+ * @return std::vector<AimCodeToken> 标签语句的目标代码
+ */
 void CodeBuilder::BuildLabelToken(const int &index, const MarkedFourTuple &ft)
 {
     std::string lable_name = ft.dist.value;
-    auto info = Lables[lable_name];
+    auto &info = Lables[lable_name];
 
     if(info.position != no_position)
     {
-        // 错误，标签已经定义了
         return;
     }
 
-    // 记录标签的OBJ索引
     code_index = OBJ.size();
     info.position = code_index;
 
-    // 生成标签指令
     OBJ.push_back({code_index, lable_name, {DistType::None, "_"}, {DistType::None, "_"}});
 
     while(!info.backpatch.empty())
     {
         int backpatch_index = info.backpatch.top();
-        OBJ[backpatch_index].second_value = {DistType::Position, std::to_string(info.position)}; // 回填跳转地址
+        OBJ[backpatch_index].second_value = {DistType::Position, std::to_string(info.position)};
         info.backpatch.pop();
     }
 }
 
-void CodeBuilder::BuildGotoToken(const int &index, const MarkedFourTuple &ft)
+/**
+ * @brief 构建调用语句的目标代码
+ *
+ * @param index 四元式的在四元式区中的索引
+ * @param ft 四元式
+ * @return std::vector<AimCodeToken> 调用语句的目标代码
+ */
+void CodeBuilder::BuildCallToken(const int &index, const MarkedFourTuple &ft)
 {
     std::string lable_name = ft.dist.value;
-    auto info = Lables[lable_name];
+    auto &info = Lables[lable_name];
     code_index = OBJ.size();
 
-    Operand none = {DistType::None, "_"}; // 无操作数
-    Operand dist = {DistType::Position, "?"}; // 位置地址操作数
+    Operand none = {DistType::None, "_"};
+    Operand dist = {DistType::Position, "?"};
 
-    OBJ.push_back({code_index, "JMP", none, dist}); // 生成JMP指令
+    OBJ.push_back({code_index, "JMP", none, dist});
 
     if(info.position == no_position)
     {
-        //标签未定义，加入回填队列
-        info.backpatch.push(index);
-    } 
-    else {
-        // 标签已经存在
-        OBJ[code_index].second_value = {DistType::Position, std::to_string(info.position)}; // 回填跳转地址
+        info.backpatch.push(code_index);
     }
+    else
+    {
+        OBJ[code_index].second_value = {DistType::Position, std::to_string(info.position)};
+    }
+}
+
+/**
+ * @brief 构建返回语句的目标代码
+ *
+ * @param index 四元式的在四元式区中的索引
+ * @param ft 四元式
+ * @return std::vector<AimCodeToken> 返回语句的目标代码
+ */
+void CodeBuilder::BuildReturnToken(const int &index, const MarkedFourTuple &ft)
+{
+    code_index = OBJ.size();
+    Operand none = {DistType::None, "_"}; // 无操作数
+    Operand dist = {DistType::None, "_"}; // 位置地址操作数
+    OBJ.push_back({code_index, "RET", none, dist}); // 生成RET指令
+}
+
+/**
+ * @brief 构建赋值语句的目标代码
+ * 
+ * @param index 四元式的索引
+ * @param ft 四元式
+ * */
+void CodeBuilder::BuildAssignToken(const int &index, const MarkedFourTuple &ft)
+{
+     // 如果寄存器需要被复用,但原寄存器内的操作数是活跃的，则需要先将原寄存器内的操作数加载到与之同名的内存中
+    // 当遇到立即数时，由于立即数与变量名肯定不同名，且寄存器中一定是左值（可判断活跃性的），所以逻辑依然成立
+    std::string RDL_name = RDL;
+    if (RDL_name != null_value && RDL_name != ft.first_value.value && ActiveRecord[index][RDL_name] == true)
+    {
+        Operand router = {DistType::Router, "R"};    // 寄存器操作数
+        Operand dist = {DistType::Memory, RDL_name}; // 内存操作数
+        code_index = OBJ.size();
+        OBJ.push_back({code_index, "ST", router, dist});
+    }
+
+    // 如果第一操作数不在寄存器中，则需要先将其从内存中加载到寄存器中
+    if (RDL_name != ft.first_value.value)
+    {
+        Operand router = {DistType::Router, "R"}; // 寄存器操作数
+        Operand source;
+        if (ft.first_value.active == is_constant)
+        {
+            source = {DistType::Constant, ft.first_value.value}; // 立即数操作数
+        }
+        else
+        {
+            source = {DistType::Memory, ft.first_value.value}; // 内存操作数
+        }
+        code_index = OBJ.size();
+        OBJ.push_back({code_index, "LD", router, source});
+    }
+
+    // 将寄存器中的值存储到目标位置
+    Operand router = {DistType::Router, "R"}; // 寄存器操作数
+    Operand dist = {DistType::Memory, ft.dist.value}; // 内存操作数
+    code_index = OBJ.size();
+    OBJ.push_back({code_index, "ST", router, dist});
+
+    // 更新寄存器描述
+    RDL = ft.dist.value;
+}
+
+void CodeBuilder::BuildGotoToken(const int &index, const MarkedFourTuple &ft)
+{
+    if (RDL != null_value && ActiveRecord[index][RDL] == true)
+    {
+        Operand router = {DistType::Router, "R"};
+        Operand dist = {DistType::Memory, RDL};
+        code_index = OBJ.size();
+        OBJ.push_back({code_index, "ST", router, dist});
+    }
+
+    std::string lable_name = ft.dist.value;
+    auto &info = Lables[lable_name];
+    code_index = OBJ.size();
+
+    Operand none = {DistType::None, "_"};
+    Operand dist = {DistType::Position, "?"};
+    OBJ.push_back({code_index, "JMP", none, dist});
+
+    if (info.position == no_position)
+    {
+        info.backpatch.push(code_index);
+    }
+    else
+    {
+        OBJ[code_index].second_value = {DistType::Position, std::to_string(info.position)};
+    }
+
+    RDL = null_value;
 }

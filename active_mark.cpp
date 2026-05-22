@@ -15,7 +15,13 @@ static bool IsVariable(const std::string &s)
 
 static bool IsNonDefOp(const std::string &op)
 {
-    return op == "lb" || op == "wh" || op == "we" || op == "goto";
+    return op == "lb" || op == "wh" || op == "we" || op == "goto"
+        || op == "el" || op == "ie" || op == "call" || op == "ret";
+}
+
+static bool IsCondJumpOp(const std::string &op)
+{
+    return op == "if" || op == "do";
 }
 
 static void AddUse(std::set<std::string> &use, const std::set<std::string> &def, const std::string &value)
@@ -58,6 +64,12 @@ void ComputeUseDef(std::vector<ActiveBasicBlock> &blocks, const std::vector<Four
 
             if (IsNonDefOp(ft.operator_str))
                 continue;
+
+            if (IsCondJumpOp(ft.operator_str))
+            {
+                AddUse(block.use, block.def, ft.first_value);
+                continue;
+            }
 
             AddUse(block.use, block.def, ft.first_value);
             AddUse(block.use, block.def, ft.second_value);
@@ -128,12 +140,20 @@ std::vector<std::set<std::string>> ComputePerInstructionLiveness(
 
             if (!IsNonDefOp(ft.operator_str))
             {
-                if (IsVariable(ft.first_value))
-                    use_i.insert(ft.first_value);
-                if (IsVariable(ft.second_value))
-                    use_i.insert(ft.second_value);
-                if (IsVariable(ft.dist))
-                    def_i.insert(ft.dist);
+                if (IsCondJumpOp(ft.operator_str))
+                {
+                    if (IsVariable(ft.first_value))
+                        use_i.insert(ft.first_value);
+                }
+                else
+                {
+                    if (IsVariable(ft.first_value))
+                        use_i.insert(ft.first_value);
+                    if (IsVariable(ft.second_value))
+                        use_i.insert(ft.second_value);
+                    if (IsVariable(ft.dist))
+                        def_i.insert(ft.dist);
+                }
             }
 
             live_before[i] = use_i;
