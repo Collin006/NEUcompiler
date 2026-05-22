@@ -188,6 +188,7 @@ private:
     string newScopedName(const string& name) const;  // 当前作用域路径后缀
     string newLabel();                                // 唯一标签
     string calleeResultName(const string& callee) const; // callee 的 _result 全路径名
+    string calleeParamName(const string& callee, int index) const; // callee 第 i 个形参的真实 synbl 名
     int emitQuad(const string& op, const string& arg1, const string& arg2, const string& result);
     void backpatchQuadResult(int quadIndex, int target);
     void backpatchQuadResult(int quadIndex, const string& target);

@@ -125,6 +125,17 @@ int main(int argc, char* argv[]) {
         cout << "\n===== 四元式输出 =====\n";
         printLinesPaged(splitLines(parser.getQuadrupleDump()), 30);
 
+        // 保存原始四元式（优化前）
+        string rawQuadPath = sourcePath + "_raw_quadruples.txt";
+        {
+            ofstream rqout(rawQuadPath, ios::out | ios::trunc);
+            if (rqout.is_open()) {
+                rqout << parser.getQuadrupleDump();
+                rqout.close();
+                cout << "[LOG] 原始四元式已写入: " << rawQuadPath << "\n";
+            }
+        }
+
         cout << "\n===== 四元式优化 =====\n";
         parser.setQuadruples(optimize(parser.getQuadruples()));
         printLinesPaged(splitLines(parser.getQuadrupleDump()), 30);

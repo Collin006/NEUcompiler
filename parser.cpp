@@ -1150,6 +1150,34 @@ string Parser::calleeResultName(const string& callee) const {
     return result;
 }
 
+string Parser::calleeParamName(const string& callee, int index) const {
+    // 查找 callee 在 synbl 中的入口
+    int calleeIdx = -1;
+    for (int i = 0; i < static_cast<int>(ctx.synbl.size()); ++i) {
+        if (ctx.synbl[i].name == callee &&
+            (ctx.synbl[i].cat == "f" || ctx.synbl[i].cat == "p")) {
+            calleeIdx = i;
+            break;
+        }
+    }
+    if (calleeIdx < 0) return "";
+
+    // 从 PFINFL 拿到 parambl 起始位置
+    const string& addr = ctx.synbl[calleeIdx].addr;
+    int pfinflIdx = -1;
+    if (addr.rfind("PFINFL[", 0) == 0) {
+        try { pfinflIdx = stoi(addr.substr(7)); } catch (...) {}
+    }
+    if (pfinflIdx < 0 || pfinflIdx >= static_cast<int>(ctx.pfinfl.size())) return "";
+
+    const PfinflItem& pf = ctx.pfinfl[pfinflIdx];
+    if (index < 0 || index >= pf.fn) return "";
+    int paramSynblIdx = pf.param + index;
+    if (paramSynblIdx < 0 || paramSynblIdx >= static_cast<int>(ctx.parambl.size())) return "";
+
+    return ctx.parambl[paramSynblIdx].name;
+}
+
 int Parser::allocateOffsetForCurrentScope() {
     if (scopeLevel_ < 0) return 0;
     if (scopeLevel_ >= static_cast<int>(scopeOffsets_.size())) {
@@ -2778,11 +2806,15 @@ bool Parser::parseAssignOrCallStatement() {
         string entryLabel = routineCallName + "_entry";
         for (const string& seg : scopePath_) entryLabel += "$" + seg;
 
-        // 实参→形参
+        // 实参→形参（直接用 callee 的真实参数名，而非 _pN）
         for (size_t i = 0; i < pendingActualArgs_.size(); ++i) {
-            string paramName = "_p" + to_string(i);
-            for (const string& seg : scopePath_) paramName += "$" + seg;
-            paramName += "$" + routineCallName;
+            string paramName = calleeParamName(routineCallName, static_cast<int>(i));
+            if (paramName.empty()) {
+                // 回退：旧式 _pN 命名
+                paramName = "_p" + to_string(i);
+                for (const string& seg : scopePath_) paramName += "$" + seg;
+                paramName += "$" + routineCallName;
+            }
             emitQuad(":=", pendingActualArgs_[i], "", paramName);
         }
         // call：返回后执行下一条四元式，无需显式返回标签
@@ -3210,11 +3242,14 @@ bool Parser::parseExpression(const vector<string>& stopTokens) {
                     string entryLabel = callName + "_entry";
                     for (const string& seg : scopePath_) entryLabel += "$" + seg;
 
-                    // 传参
+                    // 传参（直接用 callee 的真实参数名）
                     for (size_t i = 0; i < rhs[1].args.size(); ++i) {
-                        string paramName = "_p" + to_string(i);
-                        for (const string& seg : scopePath_) paramName += "$" + seg;
-                        paramName += "$" + callName;
+                        string paramName = calleeParamName(callName, static_cast<int>(i));
+                        if (paramName.empty()) {
+                            paramName = "_p" + to_string(i);
+                            for (const string& seg : scopePath_) paramName += "$" + seg;
+                            paramName += "$" + callName;
+                        }
                         emitQuad(":=", rhs[1].args[i], "", paramName);
                     }
                     // call：返回后执行下一条四元式
