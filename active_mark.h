@@ -4,16 +4,7 @@
 #include <vector>
 #include <set>
 #include <unordered_map>
-#include "four_tuple.h"
-
-struct BasicBlock
-{
-    int id;
-    int start_index;
-    int end_index;
-    std::set<int> prev;
-    std::set<int> next;
-};
+#include "youhua.h"
 
 struct ActiveBasicBlock
 {

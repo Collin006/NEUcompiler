@@ -10,10 +10,13 @@
 struct BasicBlock
 {
     int id;
+    int start_index;
+    int end_index;
     std::vector<FourTuple> tuples;
     std::set<int> prev;
     std::set<int> next;
 };
+std::vector<BasicBlock> buildBasicBlocks(const std::vector<FourTuple> &tuples);
 std::vector<FourTuple> optimize(const std::vector<FourTuple> &input);
 std::vector<FourTuple> optimizeByBasicBlocks(const std::vector<BasicBlock> &blocks);
 
