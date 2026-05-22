@@ -421,6 +421,8 @@ std::vector<BasicBlock> buildBasicBlocks(const std::vector<FourTuple> &tuples)
         int end = (i + 1 < static_cast<int>(leader_list.size()))
                       ? leader_list[i + 1] - 1
                       : static_cast<int>(tuples.size()) - 1;
+        bb.start_index = start;
+        bb.end_index = end;
 
         for (int j = start; j <= end; j++)
         {

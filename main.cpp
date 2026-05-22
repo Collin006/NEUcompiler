@@ -23,6 +23,7 @@
 #include "synbl.h"
 #include "parser.h"
 #include "youhua.h"
+#include "active_mark.h"
 
 using namespace std;
 // 词法分析器接口
@@ -81,6 +82,26 @@ bool isIntegerString(const string& s) {
 
 string valueOrPlaceholder(const string& value) {
     return value.empty() ? "_" : value;
+}
+
+string formatMarkedValue(const MarkedValue& value) {
+    string text = value.value.empty() ? "_" : value.value;
+    if (value.active == is_constant) {
+        return text + "/C";
+    }
+    return text + (value.active ? "/1" : "/0");
+}
+
+string dumpMarkedQuadruples(const vector<MarkedFourTuple>& marked) {
+    ostringstream out;
+    for (size_t i = 0; i < marked.size(); ++i) {
+        const auto& mft = marked[i];
+        out << i << ": (" << mft.operator_str << ", "
+            << formatMarkedValue(mft.first_value) << ", "
+            << formatMarkedValue(mft.second_value) << ", "
+            << formatMarkedValue(mft.dist) << ")\n";
+    }
+    return out.str();
 }
 
 string generateTargetCode(const vector<FourTuple>& quadruples) {
@@ -227,6 +248,24 @@ int main(int argc, char* argv[]) {
                  << parser.getErrorMessage() << '\n';
             return 1;
         }
+
+        cout << "\n===== 活跃信息标记 =====\n";
+        vector<BasicBlock> activeBlocks = buildBasicBlocks(parser.getQuadruples());
+        auto [markedQuadruples, activeRecord] = ActiveMark(parser.getQuadruples(), activeBlocks);
+        string activeDump = dumpMarkedQuadruples(markedQuadruples);
+        printLinesPaged(splitLines(activeDump), 30);
+
+        string activePath = sourcePath + "_active_mark.txt";
+        {
+            ofstream aout(activePath, ios::out | ios::trunc);
+            if (aout.is_open()) {
+                aout << "===== 活跃信息标记 =====\n";
+                aout << activeDump;
+                aout.close();
+                cout << "[LOG] 活跃信息标记已写入: " << activePath << "\n";
+            }
+        }
+        static_cast<void>(activeRecord);
 
         cout << "\n===== 目标代码生成 =====\n";
         string targetDump = generateTargetCode(parser.getQuadruples());
