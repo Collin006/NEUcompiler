@@ -20,7 +20,6 @@ cmake_install.cmake
 *.dylib
 NEUcompiler
 
-test_parser.txt_parse_log.txt
 *_parse_log.txt
 *_quadruples.txt
 
