@@ -19,17 +19,9 @@
 #include <unistd.h>
 #endif
 
-#include "global.h"
-#include "synbl.h"
-#include "parser.h"
-#include "youhua.h"
-#include "active_mark.h"
-#include "code_builders.h"
+#include "compiler_core.h"
 
 using namespace std;
-// 词法分析器接口
-// 读取 source，返回 token 序列
-vector<Token> lexicalAnalyze(istream& source);
 
 namespace {
 
@@ -87,121 +79,93 @@ int main(int argc, char* argv[]) {
 
     string sourcePath = argv[1];
 
-    ifstream sourceFile(sourcePath);
+    CompilerResult result = compileSourceFile(sourcePath);
 
-    if (!sourceFile.is_open()) {
-        cerr << "Error: cannot open source file: "
-             << sourcePath << '\n';
+    if (!result.stages.lexical && !result.stages.expression &&
+        !result.stages.parse && !result.errorMessage.empty()) {
+        cerr << (result.errorIsException ? "Compiler error: " : "")
+             << result.errorMessage << '\n';
         return 1;
     }
 
-    try {
+    if (result.stages.lexical) {
         cout << "===== 词法分析 =====\n";
-        vector<Token> tokens = lexicalAnalyze(sourceFile);
-
-        vector<string> tokenLines;
-        tokenLines.reserve(tokens.size());
-        for (const Token& token : tokens) {
-            tokenLines.push_back("<" + token.type + ", " + token.value +
-                                 ", line " + to_string(token.line) + ">");
-        }
-        printLinesPaged(tokenLines, 30);
-
-        cout << "\n===== 表达式分析表构建 =====\n";
-        string expressionDump;
-        string expressionError;
-        if (!Parser::getExpressionAnalysisDump(expressionDump, expressionError)) {
-            cerr << "Error: 表达式 LR(1) 自动构建失败: " << expressionError << '\n';
-            return 1;
-        }
-        printLinesPaged(splitLines(expressionDump), 30);
-
-        cout << "\n===== 语法分析 =====\n";
-        Parser parser(tokens);
-        bool parseOk = parser.parse();
-
-        printLinesPaged(splitLines(parser.getLog()), 30);
-
-        cout << "\n===== 四元式输出 =====\n";
-        printLinesPaged(splitLines(parser.getQuadrupleDump()), 30);
-
-        // 保存原始四元式（优化前）
-        string rawQuadPath = sourcePath + "_raw_quadruples.txt";
-        {
-            ofstream rqout(rawQuadPath, ios::out | ios::trunc);
-            if (rqout.is_open()) {
-                rqout << parser.getQuadrupleDump();
-                rqout.close();
-                cout << "[LOG] 原始四元式已写入: " << rawQuadPath << "\n";
-            }
-        }
-
-        cout << "\n===== 四元式优化 =====\n";
-        parser.setQuadruples(optimize(parser.getQuadruples()));
-        printLinesPaged(splitLines(parser.getQuadrupleDump()), 30);
-
-        string logPath = sourcePath + "_parse_log.txt";
-        if (parser.writeLogToFile(logPath)) {
-            cout << "\n[LOG] 详细日志已写入: " << logPath << "\n";
-        }
-
-        string quadPath = sourcePath + "_quadruples.txt";
-        {
-            ofstream qout(quadPath, ios::out | ios::trunc);
-            if (qout.is_open()) {
-                qout << parser.getQuadrupleDump();
-                qout.close();
-                cout << "[LOG] 四元式文件已写入: " << quadPath << "\n";
-            }
-        }
-
-        if (!parseOk) {
-            cerr << "\n[FAIL] 语法分析发现错误: "
-                 << parser.getErrorMessage() << '\n';
-            return 1;
-        }
-
-        cout << "\n===== 活跃信息标记 =====\n";
-        vector<BasicBlock> activeBlocks = buildBasicBlocks(parser.getQuadruples());
-        auto [markedQuadruples, activeRecord] = ActiveMark(parser.getQuadruples(), activeBlocks);
-        string activeDump = dumpMarkedQuadruples(markedQuadruples);
-        printLinesPaged(splitLines(activeDump), 30);
-
-        string activePath = sourcePath + "_active_mark.txt";
-        {
-            ofstream aout(activePath, ios::out | ios::trunc);
-            if (aout.is_open()) {
-                aout << "===== 活跃信息标记 =====\n";
-                aout << activeDump;
-                aout.close();
-                cout << "[LOG] 活跃信息标记已写入: " << activePath << "\n";
-            }
-        }
-        static_cast<void>(activeRecord);
-
-        cout << "\n===== 目标代码生成 =====\n";
-        string targetDump = generateTargetCode(parser.getQuadruples());
-        printLinesPaged(splitLines(targetDump), 30);
-
-        string targetPath = sourcePath + "_target_code.txt";
-        {
-            ofstream tout(targetPath, ios::out | ios::trunc);
-            if (tout.is_open()) {
-                tout << targetDump;
-                tout.close();
-                cout << "[LOG] 目标代码文件已写入: " << targetPath << "\n";
-            }
-        }
-
-        cout << "\n[PASS] 前端与后端流程已连通，目标代码已生成。\n";
-
+        printLinesPaged(splitLines(result.outputs.tokens), 30);
     }
-    catch (const exception& e) {
-        cerr << "Compiler error: " << e.what() << '\n';
+
+    if (!result.stages.expression && !result.errorMessage.empty() &&
+        !result.errorIsParse) {
+        cerr << result.errorMessage << '\n';
         return 1;
     }
 
-    sourceFile.close();
+    if (result.stages.expression) {
+        cout << "\n===== 表达式分析表构建 =====\n";
+        printLinesPaged(splitLines(result.outputs.expressionAnalysis), 30);
+    }
 
-    return 0;
+    if (!result.stages.parse && result.errorIsException) {
+        cerr << "Compiler error: " << result.errorMessage << '\n';
+        return 1;
+    }
+
+    if (result.stages.parse) {
+        cout << "\n===== 语法分析 =====\n";
+        printLinesPaged(splitLines(result.outputs.parseLog), 30);
+    }
+
+    if (result.stages.rawQuadruples) {
+        cout << "\n===== 四元式输出 =====\n";
+        printLinesPaged(splitLines(result.outputs.rawQuadruples), 30);
+        if (result.files.rawQuadruples.written) {
+            cout << "[LOG] 原始四元式已写入: "
+                 << result.files.rawQuadruples.path << "\n";
+        }
+    }
+
+    if (result.stages.optimizedQuadruples) {
+        cout << "\n===== 四元式优化 =====\n";
+        printLinesPaged(splitLines(result.outputs.optimizedQuadruples), 30);
+        if (result.files.parseLog.written) {
+            cout << "\n[LOG] 详细日志已写入: "
+                 << result.files.parseLog.path << "\n";
+        }
+        if (result.files.quadruples.written) {
+            cout << "[LOG] 四元式文件已写入: "
+                 << result.files.quadruples.path << "\n";
+        }
+    }
+
+    if (result.errorIsParse) {
+        cerr << "\n[FAIL] " << result.errorMessage << '\n';
+        return 1;
+    }
+
+    if (result.stages.activeMark) {
+        cout << "\n===== 活跃信息标记 =====\n";
+        printLinesPaged(splitLines(result.outputs.activeMark), 30);
+        if (result.files.activeMark.written) {
+            cout << "[LOG] 活跃信息标记已写入: "
+                 << result.files.activeMark.path << "\n";
+        }
+    }
+
+    if (result.stages.targetCode) {
+        cout << "\n===== 目标代码生成 =====\n";
+        printLinesPaged(splitLines(result.outputs.targetCode), 30);
+        if (result.files.targetCode.written) {
+            cout << "[LOG] 目标代码文件已写入: "
+                 << result.files.targetCode.path << "\n";
+        }
+    }
+
+    if (result.success) {
+        cout << "\n[PASS] 前端与后端流程已连通，目标代码已生成。\n";
+        return 0;
+    }
+
+    if (!result.errorMessage.empty()) {
+        cerr << result.errorMessage << '\n';
+    }
+    return 1;
 }
