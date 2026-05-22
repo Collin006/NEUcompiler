@@ -192,6 +192,10 @@ private:
     void backpatchQuadResult(int quadIndex, int target);
     void backpatchQuadResult(int quadIndex, const string& target);
     void declarePendingIdentifiers(const string& cat, int typ);
+
+    // 语义验证：下标越界 & 字段存在性
+    void validateSubscriptBound(const string& baseName, const string& indexText);
+    void validateFieldExists(const string& baseName, const string& fieldName);
     void enterScope();
     void leaveScope();
     void enterRoutine(const string& name);   // 进入函数/过程作用域

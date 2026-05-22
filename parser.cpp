@@ -897,38 +897,64 @@ Parser::Parser(const vector<Token>& tokens)
     scopeOffsets_.assign(1, 0);
 }
 
+/**
+ * 解析器的主解析函数，负责初始化解析状态并开始解析程序
+ * @return 解析是否成功
+ */
 bool Parser::parse() {
+    // 初始化日志输出流
     log_ = ostringstream();
+    // 初始化缩进级别
     indent_ = 0;
+    // 初始化错误标志
     hasError_ = false;
+    // 清空错误信息
     errorMsg_.clear();
+    // 清空四元式列表
     quadruples_.clear();
+    // 清空待处理标识符列表
     pendingIdentifiers_.clear();
+    // 清空实际参数列表
     pendingActualArgs_.clear();
+    // 初始化作用域级别为0
     scopeLevel_ = 0;
+    // 初始化作用域偏移量列表，初始大小为1，值为0
     scopeOffsets_.assign(1, 0);
+    // 清空作用域路径
     scopePath_.clear();
+    // 初始化临时变量计数器
     tempCounter_ = 0;
+    // 初始化标签计数器
     labelCounter_ = 0;
+    // 初始化当前例程符号表索引为-1
     currentRoutineSymbolIndex_ = -1;
+    // 初始化当前例程参数计数为0
     currentRoutineParamCount_ = 0;
+    // 初始化最后解析的类型索引为无效类型索引
     lastParsedTypeIndex_ = INVALID_TYPE_INDEX;
+    // 清空最后解析的类型代码
     lastParsedTypeCode_.clear();
+    // 清空最后表达式位置信息
     lastExpressionPlace_.clear();
+    // 清空最后语句标识符信息
     lastStatementIdentifier_.clear();
 
+    // 检查token序列是否为空
     if (tokens_.empty()) {
         logInfo("token 序列为空，无需分析");
         return true;
     }
 
+    // 开始解析程序
     bool ok = parseProgram();
 
+    // 检查是否到达token序列末尾且没有错误
     if (!isAtEnd() && !hasError_) {
         error("解析结束后仍有未消耗的 token");
         ok = false;
     }
 
+    // 根据解析结果输出相应信息
     if (ok && !hasError_) {
         logInfo(getSymbolTableDump());
         logInfo("===== 语法分析通过 =====");
@@ -936,6 +962,7 @@ bool Parser::parse() {
         logInfo("===== 语法分析失败 =====");
     }
 
+    // 返回解析结果
     return ok && !hasError_;
 }
 
@@ -1176,6 +1203,77 @@ void Parser::declarePendingIdentifiers(const string& cat, int typ) {
         }
     }
     pendingIdentifiers_.clear();
+}
+
+// ============================================================
+// 语义验证：数组下标越界 & 记录字段存在性
+// ============================================================
+
+void Parser::validateSubscriptBound(const string& baseName, const string& indexText) {
+    // 仅在索引为常整数时做静态检查
+    if (indexText.empty()) return;
+    int indexVal = 0;
+    try {
+        size_t p = 0;
+        indexVal = stoi(indexText, &p);
+        if (p != indexText.size()) return;   // 不是纯整数 → 跳过
+    } catch (...) { return; }
+
+    // 查找基础变量在符号表中的入口
+    int synblIdx = -1;
+    for (int i = 0; i < static_cast<int>(ctx.synbl.size()); ++i) {
+        if (ctx.synbl[i].name == baseName) { synblIdx = i; break; }
+    }
+    if (synblIdx < 0) return;  // 未找到（可能是拼写错误，由其他阶段报告）
+
+    int typIdx = ctx.synbl[synblIdx].typ;
+    if (typIdx < 0 || typIdx >= static_cast<int>(ctx.typel.size())) return;
+
+    const TypelItem& ti = ctx.typel[typIdx];
+    if (ti.tval != "a") return;  // 不是数组类型
+
+    int ainflIdx = ti.tpoint;
+    if (ainflIdx < 0 || ainflIdx >= static_cast<int>(ctx.ainfl.size())) return;
+
+    const AinflItem& ai = ctx.ainfl[ainflIdx];
+    if (indexVal < ai.low || indexVal > ai.up) {
+        string msg = "数组下标越界: " + baseName + "[" + indexText + "]"
+                     + " 应在 [" + to_string(ai.low) + ".." + to_string(ai.up) + "] 内";
+        logInfo(msg);
+    }
+}
+
+void Parser::validateFieldExists(const string& baseName, const string& fieldName) {
+    if (fieldName.empty()) return;
+
+    // 查找基础变量
+    int synblIdx = -1;
+    for (int i = 0; i < static_cast<int>(ctx.synbl.size()); ++i) {
+        if (ctx.synbl[i].name == baseName) { synblIdx = i; break; }
+    }
+    if (synblIdx < 0) return;
+
+    int typIdx = ctx.synbl[synblIdx].typ;
+    if (typIdx < 0 || typIdx >= static_cast<int>(ctx.typel.size())) return;
+
+    const TypelItem& ti = ctx.typel[typIdx];
+    if (ti.tval != "d") return;  // 不是记录类型
+
+    int rinflStart = ti.tpoint;
+    if (rinflStart < 0 || rinflStart >= static_cast<int>(ctx.rinfl.size())) return;
+
+    // 扫描记录的所有字段
+    bool found = false;
+    for (int i = rinflStart; i < static_cast<int>(ctx.rinfl.size()); ++i) {
+        if (ctx.rinfl[i].id == fieldName) { found = true; break; }
+        // 遇到下一个结构体的起始则停止（不同记录类型不交叉）
+        // 简化处理：检查是否遇到另一条记录的字段开始
+    }
+
+    if (!found) {
+        string msg = "字段不存在: " + baseName + "." + fieldName + " 不在记录定义中";
+        logInfo(msg);
+    }
 }
 
 // ============================================================
@@ -1451,9 +1549,15 @@ string Parser::tokenToString(const Token& t) const {
 //     〈分程序〉 → 〈说明部分〉〈复合语句〉
 // ============================================================
 
+/**
+ * 解析程序结构的函数
+ * @return 解析成功返回true，失败返回false
+ */
 bool Parser::parseProgram() {
+    // 进入规则"程序"
     enterRule("程序");
 
+    // 检查是否存在关键字"program"
     if (!matchKeyword("program")) {
         error("缺少关键字 'program'");
         exitRule("程序", false);
@@ -1461,35 +1565,42 @@ bool Parser::parseProgram() {
     }
 
     /* SEMANTIC: 程序名入符号表 */
+    // 获取当前标识符的索引
     int programIdx = currentIdIndex();
 
+    // 检查程序名是否为有效标识符
     if (!matchId()) {
         error("缺少程序名（标识符）");
         exitRule("程序", false);
         return false;
     }
+    // 如果索引有效，将符号表中的对应项标记为程序(p)，并设置地址
     if (programIdx >= 0 && programIdx < static_cast<int>(ctx.synbl.size())) {
         ctx.synbl[programIdx].cat = "p";
         ctx.synbl[programIdx].addr = formatAddr(0, -1);
     }
 
+    // 检查程序名后是否有分号
     if (!matchDelimiter(";")) {
         error("程序名后缺少 ';'");
         exitRule("程序", false);
         return false;
     }
 
+    // 解析子程序
     if (!parseSubProgram()) {
         exitRule("程序", false);
         return false;
     }
 
+    // 检查程序末尾是否有句号
     if (!matchDelimiter(".")) {
         error("程序末尾缺少 '.'");
         exitRule("程序", false);
         return false;
     }
 
+    // 退出规则"程序"，返回解析成功
     exitRule("程序", true);
     return true;
 }
@@ -2588,6 +2699,44 @@ bool Parser::parseAssignOrCallStatement() {
         }
     }
 
+    // 语义验证：检查赋值目标中的数组下标越界 & 字段存在性
+    {
+        const string& combined = lastStatementIdentifier_;
+        size_t baseEnd = combined.find_first_of("[.");
+        string currentBase = (baseEnd == string::npos)
+                             ? combined
+                             : combined.substr(0, baseEnd);
+        size_t pos = baseEnd;
+        while (pos != string::npos && pos < combined.size()) {
+            if (combined[pos] == '[') {
+                size_t close = combined.find(']', pos);
+                if (close != string::npos) {
+                    string indexStr = combined.substr(pos + 1, close - pos - 1);
+                    validateSubscriptBound(currentBase, indexStr);
+                    pos = close + 1;
+                } else break;
+            } else if (combined[pos] == '.') {
+                size_t nextDot = combined.find('.', pos + 1);
+                size_t nextBrk = combined.find('[', pos + 1);
+                size_t fieldEnd = string::npos;
+                if (nextDot != string::npos && nextBrk != string::npos)
+                    fieldEnd = (nextDot < nextBrk) ? nextDot : nextBrk;
+                else if (nextDot != string::npos)
+                    fieldEnd = nextDot;
+                else if (nextBrk != string::npos)
+                    fieldEnd = nextBrk;
+                string fieldName = (fieldEnd == string::npos)
+                                   ? combined.substr(pos + 1)
+                                   : combined.substr(pos + 1, fieldEnd - pos - 1);
+                validateFieldExists(currentBase, fieldName);
+                currentBase = (fieldEnd == string::npos)
+                              ? combined
+                              : combined.substr(0, fieldEnd);
+                pos = fieldEnd;
+            } else break;
+        }
+    }
+
     if (checkDelimiter(":=")) {
         // 赋值语句
         if (!matchDelimiter(":=")) {
@@ -2873,6 +3022,50 @@ bool Parser::parseExpression(const vector<string>& stopTokens) {
                         }
                     }
                     break; // 不是 [ 或 .，停止
+                }
+
+                // 语义验证：检查数组下标越界 & 字段存在性
+                {
+                    // 解析 combinedText，依次验证 [...].id 后缀
+                    // 先找到基础变量名（到第一个 [ 或 . 为止）
+                    size_t baseEnd = combinedText.find_first_of("[.");
+                    string currentBase = (baseEnd == string::npos)
+                                         ? combinedText
+                                         : combinedText.substr(0, baseEnd);
+                    size_t pos = baseEnd;
+                    while (pos != string::npos && pos < combinedText.size()) {
+                        if (combinedText[pos] == '[') {
+                            size_t close = combinedText.find(']', pos);
+                            if (close != string::npos) {
+                                string indexStr = combinedText.substr(pos + 1, close - pos - 1);
+                                validateSubscriptBound(currentBase, indexStr);
+                                pos = close + 1;
+                            } else {
+                                break;
+                            }
+                        } else if (combinedText[pos] == '.') {
+                            size_t nextDot = combinedText.find('.', pos + 1);
+                            size_t nextBrk = combinedText.find('[', pos + 1);
+                            size_t fieldEnd = string::npos;
+                            if (nextDot != string::npos && nextBrk != string::npos)
+                                fieldEnd = (nextDot < nextBrk) ? nextDot : nextBrk;
+                            else if (nextDot != string::npos)
+                                fieldEnd = nextDot;
+                            else if (nextBrk != string::npos)
+                                fieldEnd = nextBrk;
+                            string fieldName = (fieldEnd == string::npos)
+                                               ? combinedText.substr(pos + 1)
+                                               : combinedText.substr(pos + 1, fieldEnd - pos - 1);
+                            validateFieldExists(currentBase, fieldName);
+                            // 更新 currentBase 为完整路径，供下一次 . 验证
+                            currentBase = (fieldEnd == string::npos)
+                                          ? combinedText
+                                          : combinedText.substr(0, fieldEnd);
+                            pos = fieldEnd;
+                        } else {
+                            break;
+                        }
+                    }
                 }
 
                 SemanticValue val;
