@@ -24,6 +24,7 @@ enum DistType
 
 enum Operators
 {
+    Invalid = 0,
     // 存取指令
     LD = 100,
     ST = 101,
@@ -130,3 +131,5 @@ private:
     // Label语句构建函数
     void BuildLabelToken(const int& index, const MarkedFourTuple& ft); // 构建Label语句的目标代码
 };
+
+std::string generateTargetCode(const std::vector<FourTuple>& quadruples);
