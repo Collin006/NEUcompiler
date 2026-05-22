@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NEUcompiler GUI</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>NEUcompiler GUI</h1>
+      <div class="file-row">
+        <label for="sourcePath">源文件:</label>
+        <input id="sourcePath" type="text" placeholder="请选择要编译的源文件" />
+        <button id="browse" type="button">浏览</button>
+        <button id="run" type="button" class="primary">运行编译</button>
+      </div>
+      <div id="error" class="error hidden"></div>
+    </header>
+
+    <section class="tabs">
+      <div class="tab-buttons">
+        <button class="active" data-tab="panel-tokens">词法分析</button>
+        <button data-tab="panel-expression">表达式分析表</button>
+        <button data-tab="panel-parse">语法分析</button>
+        <button data-tab="panel-raw-quadruples">四元式(原始)</button>
+        <button data-tab="panel-optimized-quadruples">四元式(优化)</button>
+        <button data-tab="panel-active">活跃信息</button>
+        <button data-tab="panel-target">目标代码</button>
+        <button data-tab="panel-files">输出文件</button>
+        <button data-tab="panel-full">运行日志</button>
+      </div>
+      <div class="tab-panels">
+        <div class="tab-panel active" id="panel-tokens">
+          <pre id="output-tokens"></pre>
+        </div>
+        <div class="tab-panel" id="panel-expression">
+          <pre id="output-expression"></pre>
+        </div>
+        <div class="tab-panel" id="panel-parse">
+          <pre id="output-parse"></pre>
+        </div>
+        <div class="tab-panel" id="panel-raw-quadruples">
+          <pre id="output-raw-quadruples"></pre>
+        </div>
+        <div class="tab-panel" id="panel-optimized-quadruples">
+          <pre id="output-optimized-quadruples"></pre>
+        </div>
+        <div class="tab-panel" id="panel-active">
+          <pre id="output-active"></pre>
+        </div>
+        <div class="tab-panel" id="panel-target">
+          <pre id="output-target"></pre>
+        </div>
+        <div class="tab-panel" id="panel-files">
+          <pre id="output-files"></pre>
+        </div>
+        <div class="tab-panel" id="panel-full">
+          <pre id="output-full"></pre>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <span id="status">就绪</span>
+    </footer>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>
