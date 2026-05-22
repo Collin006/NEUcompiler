@@ -162,6 +162,7 @@ Operators CodeBuilder::ScanOperator(const std::string &operator_str)
     {
         return Operators::NOT;
     }
+    return Operators::Invalid;
 }
 
 /**
@@ -207,15 +208,7 @@ std::string CodeBuilder::GetOperateCommand(Operators op)
 
 void CodeBuilder::BuildTokens()
 {
-    for (int i = 0; i < QT.size(); i++)
-    {
-        // 1.扫描操作指令
-        Operators op = ScanOperator(QT[i].operator_str);
-        switch (op)
-        {
-        case Operators::ADD:
-        }
-    }
+    return;
 }
 
 /**

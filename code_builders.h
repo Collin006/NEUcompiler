@@ -24,6 +24,7 @@ enum DistType
 
 enum Operators
 {
+    Invalid = 0,
     // 存取指令
     LD = 100,
     ST = 101,
