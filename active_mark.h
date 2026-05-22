@@ -4,16 +4,7 @@
 #include <vector>
 #include <set>
 #include <unordered_map>
-#include "four_tuple.h"
-
-struct BasicBlock
-{
-    int id;
-    int start_index;
-    int end_index;
-    std::set<int> prev;
-    std::set<int> next;
-};
+#include "youhua.h"
 
 struct ActiveBasicBlock
 {
@@ -24,8 +15,8 @@ struct ActiveBasicBlock
     std::set<int> next;
     std::set<std::string> use;
     std::set<std::string> def;
-    std::set<std::string> IN;
-    std::set<std::string> OUT;
+    std::set<std::string> in_set;
+    std::set<std::string> out_set;
 };
 
 std::vector<ActiveBasicBlock> ToActiveBlocks(const std::vector<BasicBlock> &blocks);
@@ -44,3 +35,6 @@ std::pair<
 ActiveMark(
     const std::vector<FourTuple> &tuples,
     const std::vector<BasicBlock> &blocks);
+
+std::string formatMarkedValue(const MarkedValue &value);
+std::string dumpMarkedQuadruples(const std::vector<MarkedFourTuple> &marked);

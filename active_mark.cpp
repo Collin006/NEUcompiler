@@ -1,4 +1,5 @@
 #include "active_mark.h"
+#include <sstream>
 
 static bool IsConstant(const std::string &s)
 {
@@ -95,7 +96,7 @@ void ComputeInOut(std::vector<ActiveBasicBlock> &blocks)
             std::set<std::string> new_OUT;
             for (int next_id : block.next)
             {
-                for (const auto &var : blocks[next_id].IN)
+                for (const auto &var : blocks[next_id].in_set)
                 {
                     new_OUT.insert(var);
                 }
@@ -110,10 +111,10 @@ void ComputeInOut(std::vector<ActiveBasicBlock> &blocks)
                 }
             }
 
-            if (new_IN != block.IN || new_OUT != block.OUT)
+            if (new_IN != block.in_set || new_OUT != block.out_set)
             {
-                block.IN = new_IN;
-                block.OUT = new_OUT;
+                block.in_set = new_IN;
+                block.out_set = new_OUT;
                 changed = true;
             }
         }
@@ -129,7 +130,7 @@ std::vector<std::set<std::string>> ComputePerInstructionLiveness(
 
     for (const auto &block : blocks)
     {
-        std::set<std::string> live_after = block.OUT;
+        std::set<std::string> live_after = block.out_set;
 
         for (int i = block.end_index; i >= block.start_index; i--)
         {
@@ -219,4 +220,28 @@ ActiveMark(
     }
 
     return {marked_qt, active_record};
+}
+
+std::string formatMarkedValue(const MarkedValue &value)
+{
+    std::string text = value.value.empty() ? "_" : value.value;
+    if (value.active == is_constant)
+    {
+        return text + "/C";
+    }
+    return text + (value.active ? "/1" : "/0");
+}
+
+std::string dumpMarkedQuadruples(const std::vector<MarkedFourTuple> &marked)
+{
+    std::ostringstream out;
+    for (size_t i = 0; i < marked.size(); ++i)
+    {
+        const auto &mft = marked[i];
+        out << i << ": (" << mft.operator_str << ", "
+            << formatMarkedValue(mft.first_value) << ", "
+            << formatMarkedValue(mft.second_value) << ", "
+            << formatMarkedValue(mft.dist) << ")\n";
+    }
+    return out.str();
 }
