@@ -470,10 +470,29 @@ globalDeadCodeElimination(const std::vector<FourTuple> &input,
             Utils::isVar(input[i].dist) &&
             live[i].find(input[i].dist) == live[i].end())
         {
+        // ★ 保护出口活跃变量和 call 参数变量
+        bool isExitVar = false;
+        for (const auto &p : funcExitUses) {
+            if (p.second.count(input[i].dist)) {
+                isExitVar = true;
+                break;
+            }
+        }
+        if (!isExitVar) {
+            for (const auto &p : callParamUses) {
+                if (p.second.count(input[i].dist)) {
+                    isExitVar = true;
+                    break;
+                }
+            }
+        }
+
+        if (!isExitVar) {
             std::cout << "删除死代码: " << input[i].dist
                       << " := " << input[i].first_value << std::endl;
             count++;
             continue;
+        }
         }
         output.push_back(input[i]);
     }
