@@ -5,15 +5,23 @@
 #include <set>
 #include <algorithm>
 #include <sstream>
-#include <cassert>
-
-#include "youhua.h"
 
 using namespace std;
+
+// ==================== 四元式结构 ====================
+struct FourTuple
+{
+    std::string operator_str; // 操作符
+    std::string first_value;  // 第一操作数
+    std::string second_value; // 第二操作数
+    std::string dist;         // 目标操作数
+};
 
 // ==================== 优化工具函数 ====================
 namespace Utils
 {
+
+    // 判断是否是常量（以数字开头）
     bool isNumber(const std::string &s)
     {
         if (s.empty())
@@ -23,25 +31,7 @@ namespace Utils
         return isdigit(s[0]);
     }
 
-    bool isIntegerIndex(const std::string &s)
-    {
-        if (s.empty())
-            return false;
-        size_t start = 0;
-        if (s[0] == '-')
-        {
-            if (s.size() == 1)
-                return false;
-            start = 1;
-        }
-        for (size_t i = start; i < s.size(); i++)
-        {
-            if (!isdigit(static_cast<unsigned char>(s[i])))
-                return false;
-        }
-        return true;
-    }
-
+    // 判断是否是变量（以字符开头）
     bool isVar(const std::string &s)
     {
         if (s.empty())
@@ -51,6 +41,7 @@ namespace Utils
         return isalpha(s[0]) || s[0] == '_';
     }
 
+    // 计算常量表达式
     std::string compute(const std::string &op, const std::string &v1, const std::string &v2)
     {
         if (!isNumber(v1))
@@ -99,6 +90,7 @@ namespace Utils
         return (r == (int)r) ? to_string((int)r) : to_string(r);
     }
 
+    // 获取使用的变量
     std::set<std::string> getUse(const FourTuple &t)
     {
         std::set<std::string> s;
@@ -124,6 +116,7 @@ std::vector<FourTuple> constantFolding(const std::vector<FourTuple> &input)
             op == ">" || op == "<" || op == "=" ||
             op == "<=" || op == ">=" || op == "&&" || op == "||" || op == "!")
         {
+
             std::string r = Utils::compute(op, t.first_value, t.second_value);
             if (!r.empty())
             {
@@ -159,6 +152,7 @@ std::vector<FourTuple> algebraicSimplify(const std::vector<FourTuple> &input)
         std::string op = t.operator_str;
         bool simp = false;
 
+        // x + 0 = x
         if (op == "+" && t.second_value == "0")
         {
             std::cout << "代数简化: x+0 -> x" << std::endl;
@@ -167,6 +161,7 @@ std::vector<FourTuple> algebraicSimplify(const std::vector<FourTuple> &input)
             t.second_value = "";
             simp = true;
         }
+        // 0 + x = x
         else if (op == "+" && t.first_value == "0")
         {
             std::cout << "代数简化: 0+x -> x" << std::endl;
@@ -175,6 +170,7 @@ std::vector<FourTuple> algebraicSimplify(const std::vector<FourTuple> &input)
             t.second_value = "";
             simp = true;
         }
+        // x - 0 = x
         else if (op == "-" && t.second_value == "0")
         {
             std::cout << "代数简化: x-0 -> x" << std::endl;
@@ -183,6 +179,7 @@ std::vector<FourTuple> algebraicSimplify(const std::vector<FourTuple> &input)
             t.second_value = "";
             simp = true;
         }
+        // x * 1 = x
         else if (op == "*" && t.second_value == "1")
         {
             std::cout << "代数简化: x*1 -> x" << std::endl;
@@ -191,6 +188,7 @@ std::vector<FourTuple> algebraicSimplify(const std::vector<FourTuple> &input)
             t.second_value = "";
             simp = true;
         }
+        // 1 * x = x
         else if (op == "*" && t.first_value == "1")
         {
             std::cout << "代数简化: 1*x -> x" << std::endl;
@@ -199,6 +197,7 @@ std::vector<FourTuple> algebraicSimplify(const std::vector<FourTuple> &input)
             t.second_value = "";
             simp = true;
         }
+        // x * 0 = 0
         else if (op == "*" && (t.first_value == "0" || t.second_value == "0"))
         {
             std::cout << "代数简化: x*0 -> 0" << std::endl;
@@ -207,6 +206,7 @@ std::vector<FourTuple> algebraicSimplify(const std::vector<FourTuple> &input)
             t.second_value = "";
             simp = true;
         }
+        // x / 1 = x
         else if (op == "/" && t.second_value == "1")
         {
             std::cout << "代数简化: x/1 -> x" << std::endl;
@@ -225,9 +225,54 @@ std::vector<FourTuple> algebraicSimplify(const std::vector<FourTuple> &input)
     return output;
 }
 
-// ==================== 3. 公共子表达式消除 ====================
+// ==================== 3. 死代码消除 ====================
+std::vector<FourTuple> deadCodeElimination(const std::vector<FourTuple> &input)
+{
+    int n = input.size();
+    std::vector<std::set<std::string>> live(n + 1);
+    std::set<std::string> cur;
+
+    // 从后向前分析活跃变量
+    for (int i = n - 1; i >= 0; i--)
+    {
+        live[i] = cur;
+
+        if (Utils::isVar(input[i].dist))
+        {
+            cur.erase(input[i].dist);
+        }
+
+        std::set<std::string> use = Utils::getUse(input[i]);
+        cur.insert(use.begin(), use.end());
+    }
+
+    // 删除无用赋值
+    std::vector<FourTuple> output;
+    int count = 0;
+
+    for (int i = 0; i < n; i++)
+    {
+        if (input[i].operator_str == ":=" &&
+            Utils::isVar(input[i].dist) &&
+            live[i].find(input[i].dist) == live[i].end())
+        {
+
+            std::cout << "删除死代码: " << input[i].dist
+                      << " := " << input[i].first_value << std::endl;
+            count++;
+            continue;
+        }
+        output.push_back(input[i]);
+    }
+
+    std::cout << "死代码消除: " << count << " 条" << std::endl;
+    return output;
+}
+
+// ==================== 4. 公共子表达式消除 ====================
 std::vector<FourTuple> commonSubexpressionElimination(const std::vector<FourTuple> &input)
 {
+    // 用字符串作为key
     std::map<std::string, std::string> available;
     std::vector<FourTuple> output;
     int count = 0;
@@ -239,6 +284,7 @@ std::vector<FourTuple> commonSubexpressionElimination(const std::vector<FourTupl
         if (op == "+" || op == "-" || op == "*" || op == "/" ||
             op == ">" || op == "<" || op == "=" || op == "<=" || op == ">=")
         {
+
             std::string key = op + "_" + t.first_value + "_" + t.second_value;
 
             if (available.find(key) != available.end())
@@ -264,6 +310,7 @@ std::vector<FourTuple> commonSubexpressionElimination(const std::vector<FourTupl
             std::vector<std::string> to_remove;
             for (const auto &p : available)
             {
+                // 如果key中包含被赋值的变量，则失效
                 if (p.first.find(t.dist) != std::string::npos)
                 {
                     to_remove.push_back(p.first);
@@ -282,75 +329,60 @@ std::vector<FourTuple> commonSubexpressionElimination(const std::vector<FourTupl
     return output;
 }
 
-// ==================== 4. 基本块划分 ====================
+// ==================== 5. 基本块划分 ====================
+struct BasicBlock
+{
+    int id;
+    std::vector<FourTuple> tuples;
+    std::set<int> prev;
+    std::set<int> next;
+};
+
 std::vector<BasicBlock> buildBasicBlocks(const std::vector<FourTuple> &tuples)
 {
+    // 确定入口
     std::set<int> leaders;
-    if (tuples.empty())
-        return {};
-
     leaders.insert(0);
 
-    std::map<std::string, int> label2idx;
-    for (int i = 0; i < static_cast<int>(tuples.size()); i++)
+    std::map<int, int> label2idx;
+    for (int i = 0; i < tuples.size(); i++)
     {
-        if (tuples[i].operator_str == "lb" && !tuples[i].first_value.empty())
+        if (tuples[i].operator_str == "lb")
         {
-            label2idx[tuples[i].first_value] = i;
-            leaders.insert(i);
+            label2idx[std::stoi(tuples[i].dist)] = i;
         }
     }
 
-    auto addTargetLeader = [&](const std::string &targetText)
-    {
-        if (targetText.empty())
-            return;
-
-        if (Utils::isIntegerIndex(targetText))
-        {
-            int target = std::stoi(targetText);
-            if (target >= 0 && target < static_cast<int>(tuples.size()))
-                leaders.insert(target);
-        }
-        else if (label2idx.count(targetText))
-        {
-            leaders.insert(label2idx[targetText]);
-        }
-    };
-
-    for (int i = 0; i < static_cast<int>(tuples.size()); i++)
+    for (int i = 0; i < tuples.size(); i++)
     {
         std::string op = tuples[i].operator_str;
-
-        if (op == "goto" || op == "if" || op == "do" || op == "we" ||
-            op == "el" || op == "ie" || op == "ret")
+        if (op == "goto" || op == "if" || op == "wh" || op == "do" ||
+            op == "we" || op == "el" || op == "ie")
         {
-            if (i + 1 < static_cast<int>(tuples.size()))
+            if (i + 1 < tuples.size())
                 leaders.insert(i + 1);
         }
-
-        if (op == "goto" || op == "if" || op == "do" || op == "we" || op == "el")
+        if (op == "goto")
         {
-            addTargetLeader(tuples[i].dist);
+            int target = std::stoi(tuples[i].dist);
+            if (label2idx.count(target))
+                leaders.insert(label2idx[target]);
         }
     }
 
+    // 划分基本块
     std::vector<int> leader_list(leaders.begin(), leaders.end());
     std::sort(leader_list.begin(), leader_list.end());
 
     std::vector<BasicBlock> blocks;
     std::map<int, int> idx2block;
 
-    for (int i = 0; i < static_cast<int>(leader_list.size()); i++)
+    for (int i = 0; i < leader_list.size(); i++)
     {
         BasicBlock bb;
         bb.id = i;
         int start = leader_list[i];
-        int end = (i + 1 < static_cast<int>(leader_list.size()))
-                      ? leader_list[i + 1] - 1
-                      : static_cast<int>(tuples.size()) - 1;
-        bb.start_index = start;
-        bb.end_index = end;
+        int end = (i + 1 < leader_list.size()) ? leader_list[i + 1] - 1 : tuples.size() - 1;
 
         for (int j = start; j <= end; j++)
         {
@@ -360,63 +392,42 @@ std::vector<BasicBlock> buildBasicBlocks(const std::vector<FourTuple> &tuples)
         blocks.push_back(bb);
     }
 
-    auto connectBlocks = [&](int from, int targetIndex)
-    {
-        if (from < 0 || from >= static_cast<int>(blocks.size()))
-            return;
-        if (!idx2block.count(targetIndex))
-            return;
-
-        int to = idx2block[targetIndex];
-        blocks[from].next.insert(to);
-        blocks[to].prev.insert(from);
-    };
-
-    auto connectTarget = [&](int from, const std::string &targetText)
-    {
-        if (targetText.empty())
-            return;
-
-        if (Utils::isIntegerIndex(targetText))
-        {
-            int target = std::stoi(targetText);
-            if (target >= 0 && target < static_cast<int>(tuples.size()))
-                connectBlocks(from, target);
-        }
-        else if (label2idx.count(targetText))
-        {
-            connectBlocks(from, label2idx[targetText]);
-        }
-    };
-
-    for (int i = 0; i < static_cast<int>(blocks.size()); i++)
+    // 建立块间联系
+    for (int i = 0; i < blocks.size(); i++)
     {
         if (blocks[i].tuples.empty())
             continue;
 
-        const FourTuple &last = blocks[i].tuples.back();
-        std::string last_op = last.operator_str;
+        std::string last_op = blocks[i].tuples.back().operator_str;
 
-        if (last_op == "goto" || last_op == "we" || last_op == "el")
+        if (last_op == "goto")
         {
-            connectTarget(i, last.dist);
+            int target = std::stoi(blocks[i].tuples.back().dist);
+            if (label2idx.count(target) && idx2block.count(label2idx[target]))
+            {
+                int to = idx2block[label2idx[target]];
+                blocks[i].next.insert(to);
+                blocks[to].prev.insert(i);
+            }
         }
-        else if (last_op == "if" || last_op == "do")
+        else if (last_op == "if" || last_op == "wh")
         {
-            connectTarget(i, last.dist);
-            if (i + 1 < static_cast<int>(blocks.size()))
+            int target = std::stoi(blocks[i].tuples.back().dist);
+            if (label2idx.count(target) && idx2block.count(label2idx[target]))
+            {
+                int to = idx2block[label2idx[target]];
+                blocks[i].next.insert(to);
+                blocks[to].prev.insert(i);
+            }
+            if (i + 1 < blocks.size())
             {
                 blocks[i].next.insert(i + 1);
                 blocks[i + 1].prev.insert(i);
             }
         }
-        else if (last_op == "ret")
-        {
-            continue;
-        }
         else
         {
-            if (i + 1 < static_cast<int>(blocks.size()))
+            if (i + 1 < blocks.size())
             {
                 blocks[i].next.insert(i + 1);
                 blocks[i + 1].prev.insert(i);
@@ -427,273 +438,37 @@ std::vector<BasicBlock> buildBasicBlocks(const std::vector<FourTuple> &tuples)
     return blocks;
 }
 
-// ==================== 5. 全局死代码消除（增强版） ====================
-static std::vector<FourTuple>
-globalDeadCodeElimination(const std::vector<FourTuple> &input,
-                          const std::map<int, std::set<std::string>> &funcExitUses,
-                          const std::map<int, std::set<std::string>> &callParamUses)
-{
-    int n = input.size();
-    std::vector<std::set<std::string>> live(n + 1);
-    std::set<std::string> cur;
-
-    for (int i = n - 1; i >= 0; i--)
-    {
-        live[i] = cur;
-
-        if (input[i].operator_str == "call")
-        {
-            auto it = callParamUses.find(i);
-            if (it != callParamUses.end())
-                cur.insert(it->second.begin(), it->second.end());
-        }
-
-        if (input[i].operator_str == "ret")
-        {
-            auto it = funcExitUses.find(i);
-            if (it != funcExitUses.end())
-                cur.insert(it->second.begin(), it->second.end());
-        }
-
-        if (Utils::isVar(input[i].dist))
-            cur.erase(input[i].dist);
-
-        std::set<std::string> use = Utils::getUse(input[i]);
-        cur.insert(use.begin(), use.end());
-    }
-
-    std::vector<FourTuple> output;
-    int count = 0;
-    for (int i = 0; i < n; i++)
-    {
-        if (input[i].operator_str == ":=" &&
-            Utils::isVar(input[i].dist) &&
-            live[i].find(input[i].dist) == live[i].end())
-        {
-        // ★ 保护出口活跃变量和 call 参数变量
-        bool isExitVar = false;
-        for (const auto &p : funcExitUses) {
-            if (p.second.count(input[i].dist)) {
-                isExitVar = true;
-                break;
-            }
-        }
-        if (!isExitVar) {
-            for (const auto &p : callParamUses) {
-                if (p.second.count(input[i].dist)) {
-                    isExitVar = true;
-                    break;
-                }
-            }
-        }
-
-        if (!isExitVar) {
-            std::cout << "删除死代码: " << input[i].dist
-                      << " := " << input[i].first_value << std::endl;
-            count++;
-            continue;
-        }
-        }
-        output.push_back(input[i]);
-    }
-    std::cout << "死代码消除: " << count << " 条" << std::endl;
-    return output;
-}
-
-// ==================== 辅助：收集函数出口活跃变量 ====================
-static std::map<int, std::set<std::string>>
-buildFuncExitUses(const std::vector<FourTuple> &tuples)
-{
-    std::map<int, std::set<std::string>> ret2uses;
-    struct FuncInfo {
-        int start;
-        std::set<std::string> defs;
-    };
-    std::vector<FuncInfo> funcs;
-    int n = tuples.size();
-    for (int i = 0; i < n; i++)
-    {
-        if (tuples[i].operator_str == "lb")
-        {
-            FuncInfo f;
-            f.start = i;
-            funcs.push_back(f);
-        }
-        else if (!funcs.empty() && tuples[i].operator_str != "lb")
-        {
-            if (tuples[i].operator_str == ":=" && Utils::isVar(tuples[i].dist))
-                funcs.back().defs.insert(tuples[i].dist);
-        }
-    }
-
-    for (int i = 0; i < n; i++)
-    {
-        if (tuples[i].operator_str == "ret")
-        {
-            int funcIdx = -1;
-            for (int k = funcs.size() - 1; k >= 0; k--)
-            {
-                if (funcs[k].start < i)
-                {
-                    funcIdx = k;
-                    break;
-                }
-            }
-            if (funcIdx != -1)
-                ret2uses[i] = funcs[funcIdx].defs;
-        }
-    }
-    return ret2uses;
-}
-
-// ==================== 辅助：收集 call 使用的参数变量 ====================
-static std::map<int, std::set<std::string>>
-buildCallParamUses(const std::vector<FourTuple> &tuples)
-{
-    std::map<int, std::set<std::string>> call2uses;
-    for (int i = 0; i < (int)tuples.size(); i++)
-    {
-        if (tuples[i].operator_str == "call")
-        {
-            std::string funcName = tuples[i].first_value;
-            std::string funcBase;
-            size_t pos = funcName.rfind("_entry");
-            if (pos != std::string::npos)
-                funcBase = funcName.substr(0, pos);
-            else
-                funcBase = funcName;
-
-            std::set<std::string> usedParams;
-            for (int j = i - 1; j >= 0; j--)
-            {
-                if (tuples[j].operator_str == "call" ||
-                    tuples[j].operator_str == "lb" ||
-                    tuples[j].operator_str == "ret")
-                    break;
-                if (tuples[j].operator_str == ":=")
-                {
-                    const std::string &dest = tuples[j].dist;
-                    if (dest.find("_p") == 0 && dest.find("$" + funcBase) != std::string::npos)
-                        usedParams.insert(dest);
-                }
-            }
-            if (!usedParams.empty())
-                call2uses[i] = usedParams;
-        }
-    }
-    return call2uses;
-}
-
-// ==================== 跳转目标重映射 ====================
-static std::vector<FourTuple>
-remapJumpTargets(const std::vector<FourTuple> &input,
-                 const std::vector<int> &origIdx)
-{
-    std::map<int, int> old2new;
-    for (int i = 0; i < (int)input.size(); i++)
-    {
-        if (origIdx[i] >= 0)
-            old2new[origIdx[i]] = i;
-    }
-
-    std::vector<FourTuple> output = input;
-    for (auto &t : output)
-    {
-        std::string op = t.operator_str;
-        if (op == "if" || op == "do" || op == "we" || op == "el" || op == "goto")
-        {
-            if (!t.dist.empty() && Utils::isIntegerIndex(t.dist))
-            {
-                int oldTarget = std::stoi(t.dist);
-                auto it = old2new.find(oldTarget);
-                if (it != old2new.end())
-                    t.dist = std::to_string(it->second);
-                else
-                    std::cerr << "警告：跳转目标 " << oldTarget << " 在优化后不存在！" << std::endl;
-            }
-        }
-    }
-    return output;
-}
-
-// ==================== 基本块局部优化（不含死代码消除） ====================
-static std::pair<std::vector<FourTuple>, std::vector<int>>
-optimizeBasicBlockWithOrig(const BasicBlock &block)
-{
-    std::vector<FourTuple> result = block.tuples;
-    std::vector<int> orig(result.size());
-    for (int i = 0; i < (int)result.size(); i++)
-        orig[i] = block.start_index + i;
-
-    auto applyOpt = [&](std::vector<FourTuple> (*opt)(const std::vector<FourTuple>&)) {
-        std::vector<FourTuple> newRes = opt(result);
-        std::vector<int> newOrig;
-        if (newRes.size() == result.size())
-            newOrig = orig;
-        else
-            newOrig.assign(newRes.size(), -1);
-        result = newRes;
-        orig = newOrig;
-    };
-
-    applyOpt(constantFolding);
-    applyOpt(algebraicSimplify);
-    applyOpt(commonSubexpressionElimination);
-    applyOpt(constantFolding);
-
-    return {result, orig};
-}
-
-// ==================== 优化管理器 ====================
+// ==================== 6. 优化管理器 ====================
 std::vector<FourTuple> optimize(const std::vector<FourTuple> &input)
 {
     std::cout << "\n========== 开始优化 ==========" << std::endl;
     std::cout << "原始四元式: " << input.size() << " 条" << std::endl;
 
-    std::vector<BasicBlock> blocks = buildBasicBlocks(input);
-    std::cout << "基本块数量: " << blocks.size() << " 个" << std::endl;
+    std::vector<FourTuple> result = input;
 
-    std::vector<FourTuple> afterLocal;
-    std::vector<int> origIdx;
-    for (const auto &block : blocks)
-    {
-        std::cout << "\n----- 局部优化基本块 B" << block.id << " -----" << std::endl;
-        auto [optBlock, blockOrig] = optimizeBasicBlockWithOrig(block);
-        afterLocal.insert(afterLocal.end(), optBlock.begin(), optBlock.end());
-        origIdx.insert(origIdx.end(), blockOrig.begin(), blockOrig.end());
-    }
+    // 常量折叠
+    result = constantFolding(result);
 
-    auto funcExitUses = buildFuncExitUses(afterLocal);
-    auto callParamUses = buildCallParamUses(afterLocal);
+    // 代数简化
+    result = algebraicSimplify(result);
 
-    std::cout << "\n----- 全局死代码消除 -----" << std::endl;
-    std::vector<FourTuple> afterDead = globalDeadCodeElimination(afterLocal, funcExitUses, callParamUses);
+    // 公共子表达式消除
+    result = commonSubexpressionElimination(result);
 
-    std::vector<int> newOrigIdx;
-    int deadIdx = 0;
-    for (int i = 0; i < (int)afterLocal.size() && deadIdx < (int)afterDead.size(); i++)
-    {
-        if (deadIdx < (int)afterDead.size() &&
-            afterLocal[i].operator_str == afterDead[deadIdx].operator_str &&
-            afterLocal[i].first_value == afterDead[deadIdx].first_value &&
-            afterLocal[i].second_value == afterDead[deadIdx].second_value &&
-            afterLocal[i].dist == afterDead[deadIdx].dist)
-        {
-            newOrigIdx.push_back(origIdx[i]);
-            deadIdx++;
-        }
-    }
-    if (deadIdx != (int)afterDead.size())
-        std::cerr << "错误：死代码消除后指令匹配失败！" << std::endl;
+    // 再次常量折叠（可能产生新的常量表达式）
+    result = constantFolding(result);
 
-    std::vector<FourTuple> final = remapJumpTargets(afterDead, newOrigIdx);
+    // 死代码消除
+    result = deadCodeElimination(result);
 
-    std::cout << "优化后四元式: " << final.size() << " 条" << std::endl;
-    std::cout << "========== 优化完成 ==========" << std::endl;
-    return final;
+    std::cout << "优化后四元式: " << result.size() << " 条" << std::endl;
+    std::cout << "========== 优化完成 ==========\n"
+              << std::endl;
+
+    return result;
 }
 
-// ==================== 辅助函数：打印 ====================
+// ==================== 辅助函数：打印四元式 ====================
 void printTuples(const std::vector<FourTuple> &tuples)
 {
     for (size_t i = 0; i < tuples.size(); i++)
