@@ -1,0 +1,112 @@
+program TestZR;
+
+type
+    { 数组类型 }
+    MyArray = array [1 .. 10] of integer;
+    SmallArray = array [1 .. 3] of real;
+
+    { 记录类型 }
+    Point = record
+        x : integer;
+        y : integer;
+    end;
+
+    Student = record
+        id : integer;
+        score : real;
+    end;
+
+    { 嵌套记录 }
+    Line = record
+        p1 : Point;
+        p2 : Point;
+    end;
+
+    { 深层嵌套 }
+    Rect = record
+        tl : Point;
+        br : Point;
+    end;
+
+var
+    a, b : integer;
+    arr : MyArray;
+    small : SmallArray;
+    pt : Point;
+    s : Student;
+    l : Line;
+    r : Rect;
+    flag : boolean;
+
+{ 函数：测试函数体内数组/记录操作 }
+function max(x : integer; y : integer) : integer;
+begin
+    if x > y then
+        max := x;
+    if x <= y then
+        max := y;
+end;
+
+begin
+    { ===== 1. 正常数组下标 (界内) ===== }
+    arr[1] := 100;
+    arr[10] := 200;
+    a := arr[5];
+    small[1] := 1.5;
+
+    { ===== 2. 数组下标越界检查 (应报 log) ===== }
+    arr[0] := 999;       { 越界: 下界=1 }
+    arr[11] := 888;      { 越界: 上界=10 }
+    a := arr[20];        { 越界: 上界=10 }
+    small[5] := 3.0;     { 越界: 上界=3 }
+
+    { ===== 3. 变量下标 (不检查，应静默通过) ===== }
+    b := 3;
+    arr[b] := 300;
+    a := arr[b];
+
+    { ===== 4. 正常记录字段访问 ===== }
+    pt.x := 10;
+    pt.y := 20;
+    a := pt.x + pt.y;
+
+    s.id := 1001;
+    s.score := 95.5;
+
+    { ===== 5. 嵌套记录访问 ===== }
+    l.p1.x := 1;
+    l.p1.y := 2;
+    l.p2.x := 3;
+    l.p2.y := 4;
+    a := l.p1.x + l.p2.y;
+
+    r.tl.x := 0;
+    r.tl.y := 10;
+    r.br.x := 20;
+    r.br.y := 0;
+
+    { ===== 6. 不存在字段检查 (应报 log) ===== }
+    pt.z := 30;          { Point 无字段 z }
+    a := pt.w;           { Point 无字段 w }
+    l.p3.x := 5;         { Line 无字段 p3 }
+    a := s.name;         { Student 无字段 name }
+
+    { ===== 7. 数组+记录混合 ===== }
+    arr[pt.x] := 500;    { pt.x=10 → 越界上界=10 ? 取决于值 (变量不检查) }
+
+    { ===== 8. 函数调用 ===== }
+    a := max(arr[1], arr[2]);
+    a := max(pt.x, pt.y);
+
+    { ===== 9. 控制流 + 数组/记录 ===== }
+    if flag then
+        arr[1] := 1
+    else
+        arr[2] := 2;
+
+    while a < 10 do
+    begin
+        arr[a] := arr[a] + 1;
+        a := a + 1;
+    end;
+end.

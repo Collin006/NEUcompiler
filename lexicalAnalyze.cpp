@@ -9,6 +9,11 @@
 // 字符串还没有加入常量表
 using namespace std;
 
+// ===== 词法器作用域跟踪 =====
+static vector<string> lexScopeStack;       // 当前函数/过程名栈
+static int lexBeginDepth = 0;              // begin/end 嵌套深度
+static bool lexPendingScope = false;       // 刚看到 function/procedure，下一 ID 为作用域名
+
 static char toLowerChar(char ch) {
     return static_cast<char>(tolower(static_cast<unsigned char>(ch)));
 }
@@ -157,17 +162,66 @@ static Token scanIdentifierOrKeyword(istream& source, int line)
     Token token;
 
     if (keywordIndex != -1) {
+        const string& kw = ctx.keywordTable[keywordIndex];
+
+        // 作用域跟踪：function / procedure → 下一 ID 为作用域名
+        if (kw == "function" || kw == "procedure") {
+            lexPendingScope = true;
+        }
+
+        // begin / end 深度跟踪
+        if (kw == "begin") {
+            lexBeginDepth++;
+        }
+        if (kw == "end") {
+            if (lexBeginDepth > 0) lexBeginDepth--;
+            // 函数/过程结束: end; 或 end.
+            if (lexBeginDepth == 0 && !lexScopeStack.empty()) {
+                // 跳过空白，看后一个非空字符
+                while (source.peek() != EOF &&
+                       (isspace(static_cast<unsigned char>(source.peek()))))
+                    source.get();
+                char next = static_cast<char>(source.peek());
+                if (next == ';' || next == '.') {
+                    lexScopeStack.pop_back();
+                }
+            }
+        }
+
         token.type = "KEYWORD";
         token.value = to_string(keywordIndex);
         token.line = line;
         return token;
     }
 
-    int synblIndex = findSynblIndex(value);
+    // 标识符: 若在作用域内且非函数/过程名，追加 $scopePath 后缀
+    string lookupName = value;
+    {
+        bool isFuncName = false;
+        for (const string& seg : lexScopeStack) {
+            if (value == seg) { isFuncName = true; break; }
+        }
+        if (!isFuncName) {
+            for (const string& seg : lexScopeStack) {
+                lookupName += "$" + seg;
+            }
+        }
+    }
+
+    // 如果刚看到 function/procedure，当前标识符就是函数/过程名 → 入栈
+    if (lexPendingScope) {
+        lexScopeStack.push_back(value);
+        lexPendingScope = false;
+    }
+
+    int synblIndex = findSynblIndex(lookupName);
 
     if (synblIndex == -1) {
         SynblItem item;
-        item.name = value;
+        item.name = lookupName;
+        item.typ = -1;
+        item.cat = "";
+        item.addr = "(-1, -1)";
         ctx.synbl.push_back(item);
         synblIndex = static_cast<int>(ctx.synbl.size()) - 1;
     }

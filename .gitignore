@@ -2,6 +2,7 @@
 .idea/
 
 # CMake build directories
+build/
 cmake-build-*/
 
 # CMake generated files
@@ -18,4 +19,7 @@ cmake_install.cmake
 *.so
 *.dylib
 NEUcompiler
+
+*_parse_log.txt
+*_quadruples.txt
 
