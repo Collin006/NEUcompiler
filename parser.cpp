@@ -1113,11 +1113,20 @@ int Parser::ensureBuiltinType(const string& tval) {
     return ensureBuiltinTypeShared(tval);
 }
 
+/**
+ * 进入一个新的作用域
+ * 该函数会增加作用域层级，并确保作用域偏移量数组有足够的空间
+ * 同时在当前作用域层级设置初始偏移量为0
+ */
 void Parser::enterScope() {
+    // 增加作用域层级计数器
     ++scopeLevel_;
+    // 检查当前作用域层级是否超出已有数组大小
     if (scopeLevel_ >= static_cast<int>(scopeOffsets_.size())) {
+        // 如果超出，则扩展数组大小，新元素初始化为0
         scopeOffsets_.resize(scopeLevel_ + 1, 0);
     }
+    // 在当前作用域层级设置偏移量为0
     scopeOffsets_[scopeLevel_] = 0;
 }
 
@@ -1151,7 +1160,7 @@ string Parser::calleeResultName(const string& callee) const {
 }
 
 string Parser::calleeParamName(const string& callee, int index) const {
-    // 查找 callee 在 synbl 中的入口
+    // 1. 在符号表中找到被调用函数（名字匹配 + cat == "f" 或 "p"）
     int calleeIdx = -1;
     for (int i = 0; i < static_cast<int>(ctx.synbl.size()); ++i) {
         if (ctx.synbl[i].name == callee &&
@@ -1162,7 +1171,7 @@ string Parser::calleeParamName(const string& callee, int index) const {
     }
     if (calleeIdx < 0) return "";
 
-    // 从 PFINFL 拿到 parambl 起始位置
+    // 2. 从 synbl.addr 取出 "PFINFL[N]"，解析出 PFINFL 索引
     const string& addr = ctx.synbl[calleeIdx].addr;
     int pfinflIdx = -1;
     if (addr.rfind("PFINFL[", 0) == 0) {
@@ -1170,11 +1179,15 @@ string Parser::calleeParamName(const string& callee, int index) const {
     }
     if (pfinflIdx < 0 || pfinflIdx >= static_cast<int>(ctx.pfinfl.size())) return "";
 
+    // 3. 从 PFINFL 拿参数信息：fn=参数个数, param=PARAMBL 起始位置
     const PfinflItem& pf = ctx.pfinfl[pfinflIdx];
     if (index < 0 || index >= pf.fn) return "";
+
+    // 4. 第 index 个参数在 PARAMBL 中的位置
     int paramSynblIdx = pf.param + index;
     if (paramSynblIdx < 0 || paramSynblIdx >= static_cast<int>(ctx.parambl.size())) return "";
 
+    // 5. 返回形参的真实 synbl 名字（如 "m$max"）
     return ctx.parambl[paramSynblIdx].name;
 }
 
@@ -1237,15 +1250,20 @@ void Parser::declarePendingIdentifiers(const string& cat, int typ) {
 // 语义验证：数组下标越界 & 记录字段存在性
 // ============================================================
 
+/**
+ * 验证数组下标是否越界
+ * @param baseName 数组变量名
+ * @param indexText 下标表达式文本
+ */
 void Parser::validateSubscriptBound(const string& baseName, const string& indexText) {
     // 仅在索引为常整数时做静态检查
     if (indexText.empty()) return;
     int indexVal = 0;
     try {
         size_t p = 0;
-        indexVal = stoi(indexText, &p);
+        indexVal = stoi(indexText, &p);    // 将下标文本转换为整数值
         if (p != indexText.size()) return;   // 不是纯整数 → 跳过
-    } catch (...) { return; }
+    } catch (...) { return; }  // 转换失败时跳过检查
 
     // 查找基础变量在符号表中的入口
     int synblIdx = -1;
@@ -1267,7 +1285,7 @@ void Parser::validateSubscriptBound(const string& baseName, const string& indexT
     if (indexVal < ai.low || indexVal > ai.up) {
         string msg = "数组下标越界: " + baseName + "[" + indexText + "]"
                      + " 应在 [" + to_string(ai.low) + ".." + to_string(ai.up) + "] 内";
-        logInfo(msg);
+        logInfo(msg);  // 记录下标越界错误信息
     }
 }
 
@@ -1633,31 +1651,46 @@ bool Parser::parseProgram() {
     return true;
 }
 
+/**
+ * 解析分程序的函数
+ * @param enterNewScope 是否进入新的作用域
+ * @return 解析成功返回true，否则返回false
+ */
 bool Parser::parseSubProgram(bool enterNewScope) {
+    // 进入分程序解析规则
     enterRule("分程序");
 
+    // 如果需要进入新作用域
     if (enterNewScope) {
         /* SEMANTIC: 进入新的作用域层级 */
         enterScope();
     }
 
+    // 解析声明部分
     if (!parseDeclarationPart()) {
+        // 如果进入新作用域，需要退出作用域
         if (enterNewScope) leaveScope();
+        // 退出分程序解析规则，标记为失败
         exitRule("分程序", false);
         return false;
     }
 
+    // 解析复合语句
     if (!parseCompoundStatement()) {
+        // 如果进入新作用域，需要退出作用域
         if (enterNewScope) leaveScope();
+        // 退出分程序解析规则，标记为失败
         exitRule("分程序", false);
         return false;
     }
 
+    // 如果之前进入了新作用域，现在需要退出
     if (enterNewScope) {
         /* SEMANTIC: 退出作用域层级 */
         leaveScope();
     }
 
+    // 退出分程序解析规则，标记为成功
     exitRule("分程序", true);
     return true;
 }
@@ -1852,28 +1885,38 @@ bool Parser::parseIdentifierListTail() {
 //     〈变量参数〉 → var 〈标识符表〉 : 〈类型〉
 // ============================================================
 
+/**
+ * 解析函数声明
+ * 该函数负责解析完整的函数声明，包括函数名、参数、返回类型和函数体
+ * @return 如果解析成功返回true，否则返回false
+ */
 bool Parser::parseFunctionDeclaration() {
-    enterRule("函数说明");
+    enterRule("函数说明");  // 进入函数说明的解析规则
 
+    // 检查是否有function关键字
     if (!matchKeyword("function")) {
-        error("缺少关键字 'function'");
-        exitRule("函数说明", false);
+        error("缺少关键字 'function'");  // 报告缺少function关键字的错误
+        exitRule("函数说明", false);     // 退出函数说明解析规则，标记为失败
         return false;
     }
 
-    int funcIdx = currentIdIndex();
+    int funcIdx = currentIdIndex();  // 获取当前标识符的索引
 
+    // 检查是否有函数名
     if (!matchId()) {
-        error("缺少函数名");
-        exitRule("函数说明", false);
+        error("缺少函数名");  // 报告缺少函数名的错误
+        exitRule("函数说明", false);  // 退出函数说明解析规则，标记为失败
         return false;
     }
 
     /* SEMANTIC: 函数名入符号表，cat = 'f' */
+    // 设置当前例程符号索引和参数计数
     currentRoutineSymbolIndex_ = funcIdx;
     currentRoutineParamCount_ = 0;
+    // 获取函数名
     string funcName = (funcIdx >= 0 && funcIdx < static_cast<int>(ctx.synbl.size()))
                       ? ctx.synbl[funcIdx].name : "?";
+    // 在符号表中设置函数的类别和地址
     if (funcIdx >= 0 && funcIdx < static_cast<int>(ctx.synbl.size())) {
         ctx.synbl[funcIdx].cat = "f";
         ctx.synbl[funcIdx].addr = "PFINFL[-1]";
@@ -1883,71 +1926,87 @@ bool Parser::parseFunctionDeclaration() {
     {
         string entryLabel = funcName + "_entry";
         for (const string& seg : scopePath_) entryLabel += "$" + seg;
-        emitQuad("lb", entryLabel, "", "");
+        emitQuad("lb", entryLabel, "", "");  // 生成函数入口标签的四元式
     }
-    enterRoutine(funcName);
+    enterRoutine(funcName);  // 进入函数作用域
 
+    // 解析形式参数
     if (!parseFormalParameters()) {
-        leaveRoutine();
-        exitRule("函数说明", false);
+        leaveRoutine();  // 退出函数作用域
+        exitRule("函数说明", false);  // 退出函数说明解析规则，标记为失败
         return false;
     }
 
+    // 检查是否有返回类型前的冒号
     if (!matchDelimiter(":")) {
-        leaveRoutine();
-        error("函数缺少返回类型前的 ':'");
-        exitRule("函数说明", false);
+        leaveRoutine();  // 退出函数作用域
+        error("函数缺少返回类型前的 ':'");  // 报告缺少冒号的错误
+        exitRule("函数说明", false);  // 退出函数说明解析规则，标记为失败
         return false;
     }
 
+    // 解析返回类型
     if (!parseType()) {
-        leaveRoutine();
-        exitRule("函数说明", false);
+        leaveRoutine();  // 退出函数作用域
+        exitRule("函数说明", false);  // 退出函数说明解析规则，标记为失败
         return false;
     }
 
     /* SEMANTIC: 设置函数返回类型 */
+    // 设置函数的返回类型
     if (currentRoutineSymbolIndex_ >= 0 && currentRoutineSymbolIndex_ < static_cast<int>(ctx.synbl.size())) {
         ctx.synbl[currentRoutineSymbolIndex_].typ = lastParsedTypeIndex_;
     }
 
+    // 检查返回类型后是否有分号
     if (!matchDelimiter(";")) {
-        leaveRoutine();
-        error("函数返回类型后缺少 ';'");
-        exitRule("函数说明", false);
+        leaveRoutine();  // 退出函数作用域
+        error("函数返回类型后缺少 ';'");  // 报告缺少分号的错误
+        exitRule("函数说明", false);  // 退出函数说明解析规则，标记为失败
         return false;
     }
 
+    // 解析子程序（函数体）
     if (!parseSubProgram(false)) {
-        leaveRoutine();
-        exitRule("函数说明", false);
+        leaveRoutine();  // 退出函数作用域
+        exitRule("函数说明", false);  // 退出函数说明解析规则，标记为失败
         return false;
     }
 
+    // 检查函数体后是否有分号
     if (!matchDelimiter(";")) {
-        leaveRoutine();
-        error("函数体后缺少 ';'");
-        exitRule("函数说明", false);
+        leaveRoutine();  // 退出函数作用域
+        error("函数体后缺少 ';'");  // 报告缺少分号的错误
+        exitRule("函数说明", false);  // 退出函数说明解析规则，标记为失败
         return false;
     }
 
     /* SEMANTIC: 函数结束，返回调用点 */
+    // 生成返回四元式
     emitQuad("ret", "", "", "");
 
-    currentRoutineSymbolIndex_ = -1;
-    leaveRoutine();
+    currentRoutineSymbolIndex_ = -1;  // 重置当前例程符号索引
+    leaveRoutine();  // 退出函数作用域
 
-    exitRule("函数说明", true);
+    exitRule("函数说明", true);  // 退出函数说明解析规则，标记为成功
     return true;
 }
 
+/**
+ * 解析形式参数的函数
+ * 该函数负责解析函数或过程的形式参数部分，包括参数的声明和记录
+ * @return 解析成功返回true，否则返回false
+ */
 bool Parser::parseFormalParameters() {
-    enterRule("形式参数");
+    enterRule("形式参数");  // 进入语法规则解析
+    // 记录参数开始的索引位置
     int paramStart = static_cast<int>(ctx.parambl.size());
 
+    // 检查是否以左括号开始
     if (matchDelimiter("(")) {
+        // 如果不是右括号，说明有参数
         if (!checkDelimiter(")")) {
-            // 非空参数表
+            // 非空参数表，解析参数列表
             if (!parseParameterList()) {
                 exitRule("形式参数", false);
                 return false;
@@ -1955,6 +2014,7 @@ bool Parser::parseFormalParameters() {
         }
         // ε 情形（空括号内）：不做额外处理
 
+        // 检查是否有匹配的右括号
         if (!matchDelimiter(")")) {
             error("缺少 ')' 关闭形式参数");
             exitRule("形式参数", false);
@@ -1964,21 +2024,24 @@ bool Parser::parseFormalParameters() {
     // ε 情形（无括号）：直接返回
 
     /* SEMANTIC: 记录形参个数 */
+    // 如果当前有活动的例程（函数或过程）
     if (currentRoutineSymbolIndex_ >= 0) {
+        // 创建一个新的参数信息项
         PfinflItem item{};
-        item.level = scopeLevel_;
-        item.off = 0;
-        item.fn = currentRoutineParamCount_;
-        item.entry = -1;
-        item.param = (currentRoutineParamCount_ > 0 ? paramStart : -1);
-        ctx.pfinfl.push_back(item);
-        int pfinflIndex = static_cast<int>(ctx.pfinfl.size()) - 1;
+        item.level = scopeLevel_;  // 设置作用域层级
+        item.off = 0;             // 偏移量设为0
+        item.fn = currentRoutineParamCount_;  // 设置参数计数
+        item.entry = -1;          // 入口点设为-1
+        item.param = (currentRoutineParamCount_ > 0 ? paramStart : -1);  // 参数起始位置
+        ctx.pfinfl.push_back(item);  // 将参数信息添加到上下文中
+        int pfinflIndex = static_cast<int>(ctx.pfinfl.size()) - 1;  // 获取刚添加的参数信息索引
+        // 更新当前例程的符号表项，指向参数信息
         if (currentRoutineSymbolIndex_ < static_cast<int>(ctx.synbl.size())) {
             ctx.synbl[currentRoutineSymbolIndex_].addr = "PFINFL[" + to_string(pfinflIndex) + "]";
         }
     }
 
-    exitRule("形式参数", true);
+    exitRule("形式参数", true);  // 退出语法规则解析，表示成功
     return true;
 }
 
@@ -2514,26 +2577,36 @@ bool Parser::parseField(int& currentOff) {
 //     〈语句表〉 → 〈语句〉 ; 〈语句表〉 | ε
 // ============================================================
 
+/**
+ * 解析复合语句的函数
+ * 复合语句以 begin 开始，以 end 结束，中间包含一系列语句
+ * @return 解析成功返回 true，否则返回 false
+ */
 bool Parser::parseCompoundStatement() {
+    // 进入复合语句解析规则
     enterRule("复合语句");
 
+    // 检查并匹配 begin 关键字
     if (!matchKeyword("begin")) {
         error("缺少关键字 'begin'");
         exitRule("复合语句", false);
         return false;
     }
 
+    // 解析语句列表
     if (!parseStatementList()) {
         exitRule("复合语句", false);
         return false;
     }
 
+    // 检查并匹配 end 关键字
     if (!matchKeyword("end")) {
         error("缺少关键字 'end'");
         exitRule("复合语句", false);
         return false;
     }
 
+    // 成功解析复合语句，退出规则并返回 true
     exitRule("复合语句", true);
     return true;
 }
