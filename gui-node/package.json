@@ -7,7 +7,7 @@
     "build:native": "cmake -S .. -B ../build -DCMAKE_BUILD_TYPE=Release && cmake --build ../build --config Release",
     "prepare:binaries": "node build-scripts/prepare-binaries.js",
     "dist": "npm run build:native && npm run prepare:binaries && electron-builder",
-    "dist:win": "node build-scripts/require-windows.js && npm run build:native && npm run prepare:binaries && electron-builder --win portable",
+    "dist:win": "set CSC_IDENTITY_AUTO_DISCOVERY=false&& node build-scripts/require-windows.js && npm run build:native && npm run prepare:binaries && electron-builder --win portable",
     "pack": "npm run build:native && npm run prepare:binaries && electron-builder --dir",
     "test": "echo \"No tests\"",
     "start": "electron ."
@@ -43,6 +43,7 @@
       "target": [
         "portable"
       ],
+      "signAndEditExecutable": false,
       "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
     },
     "mac": {
