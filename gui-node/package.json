@@ -1,0 +1,57 @@
+{
+  "name": "neucompiler-gui",
+  "version": "1.0.0",
+  "description": "Electron GUI for NEUcompiler",
+  "main": "main.js",
+  "scripts": {
+    "build:native": "cmake -S .. -B ../build -DCMAKE_BUILD_TYPE=Release && cmake --build ../build --config Release",
+    "prepare:binaries": "node build-scripts/prepare-binaries.js",
+    "dist": "npm run build:native && npm run prepare:binaries && electron-builder",
+    "dist:win": "set CSC_IDENTITY_AUTO_DISCOVERY=false&& node build-scripts/require-windows.js && npm run build:native && npm run prepare:binaries && electron-builder --win portable",
+    "pack": "npm run build:native && npm run prepare:binaries && electron-builder --dir",
+    "test": "echo \"No tests\"",
+    "start": "electron ."
+  },
+  "keywords": [],
+  "author": "NEUcompiler Team",
+  "license": "ISC",
+  "type": "commonjs",
+  "build": {
+    "appId": "edu.neu.compiler.gui",
+    "productName": "NEUcompiler-GUI",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "index.html",
+      "main.js",
+      "preload.js",
+      "renderer.js",
+      "style.css",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/bin",
+        "to": "bin",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "signAndEditExecutable": false,
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+    },
+    "mac": {
+      "identity": null
+    }
+  },
+  "devDependencies": {
+    "electron": "^42.2.0",
+    "electron-builder": "^26.8.1"
+  }
+}

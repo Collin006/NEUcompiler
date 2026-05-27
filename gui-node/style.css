@@ -1,0 +1,131 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #f6f7fb;
+  color: #1f2328;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+header {
+  padding: 20px 24px 12px;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+h1 {
+  margin: 0 0 12px;
+  font-size: 22px;
+}
+
+.file-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.file-row label {
+  font-weight: 600;
+}
+
+.file-row input {
+  flex: 1;
+  min-width: 280px;
+  padding: 8px 10px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #fff;
+}
+
+button {
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid #d0d7de;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+button.primary {
+  background: #0969da;
+  color: #ffffff;
+  border-color: #0969da;
+}
+
+.error {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: #fff5f5;
+  border: 1px solid #f1aeb5;
+  color: #b42318;
+  border-radius: 6px;
+}
+
+.error.hidden {
+  display: none;
+}
+
+.tabs {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.tab-buttons {
+  display: flex;
+  gap: 6px;
+  padding: 12px 16px;
+  background: #f0f2f7;
+  border-bottom: 1px solid #d0d7de;
+  flex-wrap: wrap;
+}
+
+.tab-buttons button {
+  border: none;
+  background: transparent;
+  padding: 6px 10px;
+  border-radius: 999px;
+}
+
+.tab-buttons button.active {
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  font-weight: 600;
+}
+
+.tab-panels {
+  flex: 1;
+  background: #ffffff;
+  padding: 16px;
+}
+
+.tab-panel {
+  display: none;
+  height: 100%;
+}
+
+.tab-panel.active {
+  display: block;
+}
+
+pre {
+  margin: 0;
+  white-space: pre;
+  font-family: "Fira Code", "Consolas", monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  max-height: calc(100vh - 260px);
+  overflow: auto;
+}
+
+footer {
+  padding: 10px 16px;
+  background: #ffffff;
+  border-top: 1px solid #d0d7de;
+  font-size: 13px;
+}

@@ -8,17 +8,18 @@ if(MSVC)
     add_compile_options(/utf-8)
 endif()
 
-add_executable(NEUcompiler main.cpp
+set(NEUCOMPILER_CORE_SOURCES
         lexicalAnalyze.cpp
         parser.cpp
         active_mark.cpp
-        active_mark.h
         code_builders.cpp
-        code_builders.h
-        global.h
         global.cpp
         synbl.cpp
-        synbl.h
-        parser.h
         youhua.CPP
-        youhua.h)
+        compiler_core.cpp)
+
+add_library(NEUcompiler_core ${NEUCOMPILER_CORE_SOURCES})
+target_include_directories(NEUcompiler_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(NEUcompiler main.cpp)
+target_link_libraries(NEUcompiler PRIVATE NEUcompiler_core)

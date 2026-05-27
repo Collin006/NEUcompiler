@@ -23,3 +23,7 @@ NEUcompiler
 *_parse_log.txt
 *_quadruples.txt
 
+# Node GUI
+gui-node/node_modules/
+gui-node/dist/
+gui-node/resources/bin/
