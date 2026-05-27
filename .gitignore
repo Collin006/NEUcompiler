@@ -26,3 +26,4 @@ NEUcompiler
 # Node GUI
 gui-node/node_modules/
 gui-node/dist/
+gui-node/resources/bin/

@@ -31,8 +31,21 @@ function getCompilerPath() {
   if (envPath && envPath.trim().length > 0) {
     return envPath;
   }
+
   const binaryName = process.platform === 'win32' ? 'NEUcompiler.exe' : 'NEUcompiler';
-  return path.resolve(__dirname, '..', 'build', binaryName);
+  const platformDir = `${process.platform}-${process.arch}`;
+  const candidates = [
+    path.join(process.resourcesPath || '', 'bin', platformDir, binaryName),
+    path.join(process.resourcesPath || '', 'bin', process.platform, binaryName),
+    path.resolve(__dirname, 'resources', 'bin', platformDir, binaryName),
+    path.resolve(__dirname, 'resources', 'bin', process.platform, binaryName),
+    path.resolve(__dirname, '..', 'build', 'Release', binaryName),
+    path.resolve(__dirname, '..', 'build', binaryName),
+    path.resolve(__dirname, '..', 'cmake-build-release', binaryName),
+    path.resolve(__dirname, '..', 'cmake-build-debug', binaryName)
+  ];
+
+  return candidates.find(candidate => candidate && fs.existsSync(candidate)) || candidates[0];
 }
 
 function parseStages(output) {
